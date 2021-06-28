@@ -173,6 +173,7 @@ class Viewer(wx.Panel):
         self.y_actor = None
         self.z_actor = None
         self.mark_actor = None
+        self.obj_arrow_actor = None
 
         self._mode_cross = False
         self._to_show_ball = 0
@@ -1273,11 +1274,12 @@ class Viewer(wx.Panel):
         self.x_actor = self.add_line([0., 0., 0.], [1., 0., 0.], color=[.0, .0, 1.0])
         self.y_actor = self.add_line([0., 0., 0.], [0., 1., 0.], color=[.0, 1.0, .0])
         self.z_actor = self.add_line([0., 0., 0.], [0., 0., 1.], color=[1.0, .0, .0])
-
+        self.obj_arrow_actor = self.add_objectArrow([0., 0., 0.], [0., 0., 1.], vtk_colors.GetColor3d('Red'), 50)
         self.ren.AddActor(self.obj_actor)
         self.ren.AddActor(self.x_actor)
         self.ren.AddActor(self.y_actor)
         self.ren.AddActor(self.z_actor)
+        self.ren.AddActor(self.obj_arrow_actor)
 
         # self.obj_axes = vtk.vtkAxesActor()
         # self.obj_axes.SetShaftTypeToCylinder()
@@ -1287,6 +1289,44 @@ class Viewer(wx.Panel):
         # self.obj_axes.SetTotalLength(50.0, 50.0, 50.0)
 
         # self.ren.AddActor(self.obj_axes)
+
+    def add_objectArrow(self, direction, orientation, color=[0.0, 0.0, 1.0], size=2):
+        vtk_colors = vtk.vtkNamedColors()
+
+        arrow = vtk.vtkArrowSource()
+
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(arrow.GetOutputPort())
+
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().SetColor(color)
+        actor.GetProperty().SetLineWidth(50)
+        actor.AddPosition(0, 0, 0)
+        actor.SetScale(size)
+        actor.SetPosition(direction[0], direction[1], direction[2])
+        actor.SetOrientation(orientation[0], orientation[1], orientation[2])
+
+        return actor
+
+    def objectArrowlocation(self, m_img):
+        vec_length = 75
+        m_img_flip = m_img.copy()
+        m_img_flip[1, -1] = -m_img_flip[1, -1]
+        p1 = m_img_flip[:-1, -1]
+        coil_dir = m_img_flip[:-1, 0]
+        coil_face = m_img_flip[:-1, 1]
+        coil_up = m_img_flip[:-1, 2]
+        p2_up = p1 + vec_length * coil_up
+        p2_face = p1 + vec_length * coil_face
+        p2_dir = p1 + vec_length * coil_dir
+        coil_norm = np.cross(coil_dir, coil_face)
+        p2_norm = p1 - vec_length * coil_norm
+
+        return coil_up
+
+
+
 
     def add_line(self, p1, p2, color=[0.0, 0.0, 1.0]):
         line = vtk.vtkLineSource()
@@ -1353,7 +1393,8 @@ class Viewer(wx.Panel):
 
         m_img_flip = m_img.copy()
         m_img_flip[1, -1] = -m_img_flip[1, -1]
-
+        m_img_flip_test = m_img_flip.copy()
+        m_img_flip_test[0, -1] = m_img_flip[0, -1]
         # translate coregistered coordinate to display a marker where Trekker seed is computed
         # coord_offset = m_img_flip[:3, -1] - self.seed_offset * m_img_flip[:3, 2]
 
@@ -1364,12 +1405,19 @@ class Viewer(wx.Panel):
         # m_img[:3, 2] is from bottom to up direction of the coil
 
         m_img_vtk = vtku.numpy_to_vtkMatrix4x4(m_img_flip)
-
+        m_img_vtk_test = vtku.numpy_to_vtkMatrix4x4(m_img_flip_test)
         self.obj_actor.SetUserMatrix(m_img_vtk)
         # self.obj_axes.SetUserMatrix(m_rot_vtk)
         self.x_actor.SetUserMatrix(m_img_vtk)
         self.y_actor.SetUserMatrix(m_img_vtk)
         self.z_actor.SetUserMatrix(m_img_vtk)
+        #self.obj_arrow_actor.SetUserMatrix(m_img_vtk_test)
+        coil_face = self.objectArrowlocation(m_img)
+        self.obj_arrow_actor.SetPosition(m_img_flip_test[0:-1, 3])
+        self.obj_arrow_actor.SetOrientation(coil_face)
+        print(m_img_flip_test[0:-1, 3])
+        m = m_img_flip_test[0:-1, 3]
+        self.obj_arrow_actor.GetProperty().SetColor([0.1, 1., 0.2])
 
         self.Refresh()
 
@@ -1386,6 +1434,7 @@ class Viewer(wx.Panel):
                 self.ren.RemoveActor(self.y_actor)
                 self.ren.RemoveActor(self.z_actor)
                 self.ren.RemoveActor(self.mark_actor)
+                self.ren.RemoveActor(self.obj_arrow_actor)
                 self.obj_actor = None
                 self.x_actor = None
                 self.y_actor = None
@@ -1400,7 +1449,6 @@ class Viewer(wx.Panel):
             self.x_actor.SetVisibility(self.obj_state)
             self.y_actor.SetVisibility(self.obj_state)
             self.z_actor.SetVisibility(self.obj_state)
-
         self.Refresh()
 
     def OnUpdateTracts(self, root=None, affine_vtk=None, coord_offset=None):
