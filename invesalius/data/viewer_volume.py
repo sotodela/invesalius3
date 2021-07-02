@@ -174,6 +174,7 @@ class Viewer(wx.Panel):
         self.z_actor = None
         self.mark_actor = None
         self.obj_arrow_actor = None
+        self.object_orientation_disk_actor = None
 
         self._mode_cross = False
         self._to_show_ball = 0
@@ -1274,12 +1275,14 @@ class Viewer(wx.Panel):
         self.x_actor = self.add_line([0., 0., 0.], [1., 0., 0.], color=[.0, .0, 1.0])
         self.y_actor = self.add_line([0., 0., 0.], [0., 1., 0.], color=[.0, 1.0, .0])
         self.z_actor = self.add_line([0., 0., 0.], [0., 0., 1.], color=[1.0, .0, .0])
-        self.obj_arrow_actor = self.add_objectArrow([0., 0., 0.], [0., 0., 1.], vtk_colors.GetColor3d('Red'), 50)
+        self.obj_arrow_actor = self.add_objectArrow([0., 0., 0.], [0., 0., 0.], vtk_colors.GetColor3d('Red'), 50)
+        self.object_orientation_disk_actor = self.add_object_orientation_disk([0., 0., 0.], [0., 0., 0.], vtk_colors.GetColor3d('Red'))
         self.ren.AddActor(self.obj_actor)
         self.ren.AddActor(self.x_actor)
         self.ren.AddActor(self.y_actor)
         self.ren.AddActor(self.z_actor)
         self.ren.AddActor(self.obj_arrow_actor)
+        self.ren.AddActor(self.object_orientation_disk_actor)
 
         # self.obj_axes = vtk.vtkAxesActor()
         # self.obj_axes.SetShaftTypeToCylinder()
@@ -1289,6 +1292,26 @@ class Viewer(wx.Panel):
         # self.obj_axes.SetTotalLength(50.0, 50.0, 50.0)
 
         # self.ren.AddActor(self.obj_axes)
+
+    def add_object_orientation_disk(self, position, orientation, color=[0.0, 0.0, 1.0]):
+        # Create a disk to show target
+        disk = vtk.vtkDiskSource()
+        disk.SetInnerRadius(2)
+        disk.SetOuterRadius(5)
+        disk.SetRadialResolution(100)
+        disk.SetCircumferentialResolution(100)
+        disk.Update()
+
+        disk_mapper = vtk.vtkPolyDataMapper()
+        disk_mapper.SetInputData(disk.GetOutput())
+        disk_actor = vtk.vtkActor()
+        disk_actor.SetMapper(disk_mapper)
+        disk_actor.GetProperty().SetColor(color)
+        disk_actor.GetProperty().SetOpacity(5)
+        disk_actor.SetPosition(position[0], position[1], position[2])
+        disk_actor.SetOrientation(orientation[0], orientation[1], orientation[2])
+
+        return disk_actor
 
     def add_objectArrow(self, direction, orientation, color=[0.0, 0.0, 1.0], size=2):
         vtk_colors = vtk.vtkNamedColors()
@@ -1310,6 +1333,9 @@ class Viewer(wx.Panel):
         return actor
 
     def objectArrowlocation(self, m_img):
+        # m_img[:3, 0] is from posterior to anterior direction of the coil
+        # m_img[:3, 1] is from left to right direction of the coil
+        # m_img[:3, 2] is from bottom to up direction of the coil
         vec_length = 75
         m_img_flip = m_img.copy()
         m_img_flip[1, -1] = -m_img_flip[1, -1]
@@ -1323,7 +1349,7 @@ class Viewer(wx.Panel):
         coil_norm = np.cross(coil_dir, coil_face)
         p2_norm = p1 - vec_length * coil_norm
 
-        return coil_up
+        return coil_face, p2_norm, p2_up
 
 
 
@@ -1389,12 +1415,16 @@ class Viewer(wx.Panel):
         self.Refresh()
 
     def UpdateObjectOrientation(self, m_img, coord):
+        vtk_colors = vtk.vtkNamedColors()
         # print("Update object orientation")
 
         m_img_flip = m_img.copy()
         m_img_flip[1, -1] = -m_img_flip[1, -1]
         m_img_flip_test = m_img_flip.copy()
-        m_img_flip_test[0, -1] = m_img_flip[0, -1]
+        #m_img_flip_test[0, -1] = m_img_flip_test[0, -1]
+        m_up_coil = m_img_flip_test[:3, 2].copy()
+        m_arrow_position = m_img_flip_test[0:-1, 3].copy()
+        m_arrow_position[2] = m_arrow_position[2] - 100
         # translate coregistered coordinate to display a marker where Trekker seed is computed
         # coord_offset = m_img_flip[:3, -1] - self.seed_offset * m_img_flip[:3, 2]
 
@@ -1411,14 +1441,15 @@ class Viewer(wx.Panel):
         self.x_actor.SetUserMatrix(m_img_vtk)
         self.y_actor.SetUserMatrix(m_img_vtk)
         self.z_actor.SetUserMatrix(m_img_vtk)
-        #self.obj_arrow_actor.SetUserMatrix(m_img_vtk_test)
-        coil_face = self.objectArrowlocation(m_img)
-        self.obj_arrow_actor.SetPosition(m_img_flip_test[0:-1, 3])
-        self.obj_arrow_actor.SetOrientation(coil_face)
-        print(m_img_flip_test[0:-1, 3])
-        m = m_img_flip_test[0:-1, 3]
-        self.obj_arrow_actor.GetProperty().SetColor([0.1, 1., 0.2])
 
+        #self.obj_arrow_actor.SetUserMatrix(m_img_vtk_test)
+        [coil_face, norm, pos2 ]= self.objectArrowlocation(m_img)
+        self.obj_arrow_actor.SetPosition(pos2)
+        self.obj_arrow_actor.SetOrientation(norm)
+        self.obj_arrow_actor.GetProperty().SetColor([0.1, 1., 0.2])
+        self.object_orientation_disk_actor.SetPosition(pos2)
+        self.object_orientation_disk_actor.SetOrientation(norm)
+        self.object_orientation_disk_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
         self.Refresh()
 
     def UpdateTrackObjectState(self, evt=None, flag=None, obj_name=None, polydata=None):

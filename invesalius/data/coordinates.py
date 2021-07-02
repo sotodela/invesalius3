@@ -274,7 +274,6 @@ def DebugCoord(trk_init, trck_id, ref_mode):
     #                    uniform(-180.0, 180.0), uniform(-180.0, 180.0), uniform(-180.0, 180.0)])
 
     Publisher.sendMessage('Sensors ID', probe_id=int(uniform(0, 5)), ref_id=int(uniform(0, 5)), obj_id=int(uniform(0, 5)))
-
     return np.vstack([coord1, coord2, coord3, coord4])
 
 
