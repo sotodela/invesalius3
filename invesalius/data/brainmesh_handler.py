@@ -213,6 +213,23 @@ class Brain:
 
         return self.currentPeelActor
 
+    def getCenters(self):
+        # Compute centers of triangles
+        centerComputer = vtk.vtkCellCenters()  # This computes ceners of the triangles on the peel
+        centerComputer.SetInputData(self.currentPeel)
+        centerComputer.Update()
+        peel_centers = vtk.vtkFloatArray()  # This stores the centers for easy access
+        peel_centers = centerComputer.GetOutput()
+
+        # Compute normals of triangles
+        normalComputer = vtk.vtkPolyDataNormals()  # This computes normals of the triangles on the peel
+        normalComputer.SetInputData(self.currentPeel)
+        normalComputer.ComputePointNormalsOff()
+        normalComputer.ComputeCellNormalsOn()
+        normalComputer.Update()
+        peel_normals = vtk.vtkFloatArray()  # This converts to the normals to an array for easy access
+        peel_normals = normalComputer.GetOutput().GetCellData().GetNormals()
+        return peel_normals, peel_centers
 
 def cleanMesh(inp):
     cleaned = vtk.vtkCleanPolyData()
