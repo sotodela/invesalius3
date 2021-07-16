@@ -197,12 +197,19 @@ class Viewer(wx.Panel):
 
         self.actor_tracts = None
         self.actor_peel = None
+
+        self.peel_centers = None
+        self.peel_normals = None
+
+        self.locator = None
         self.seed_offset = const.SEED_OFFSET
 
         # initialize Trekker parameters
         slic = sl.Slice()
         affine = slic.affine
         self.affine_vtk = vtku.numpy_to_vtkMatrix4x4(affine)
+
+
 
     def __bind_events(self):
         Publisher.subscribe(self.LoadActor,
@@ -311,6 +318,8 @@ class Viewer(wx.Panel):
         Publisher.subscribe(self.UpdateMarkerOffsetState, 'Update marker offset state')
         Publisher.subscribe(self.UpdateMarkerOffsetPosition, 'Update marker offset')
         Publisher.subscribe(self.AddPeeledSurface, 'Update peel')
+        Publisher.subscribe(self.GetPeelCenters, 'Get peel centers and normals')
+        Publisher.subscribe(self.initlocator_viewer, 'Get init locator')
 
         Publisher.subscribe(self.load_mask_preview, 'Load mask preview')
         Publisher.subscribe(self.remove_mask_preview, 'Remove mask preview')
@@ -1332,24 +1341,24 @@ class Viewer(wx.Panel):
 
         return actor
 
-    def objectArrowlocation(self, m_img):
+    def objectArrowlocation(self, m_img, coord):
         # m_img[:3, 0] is from posterior to anterior direction of the coil
         # m_img[:3, 1] is from left to right direction of the coil
         # m_img[:3, 2] is from bottom to up direction of the coil
-        vec_length = 75
+        vec_length = 175
         m_img_flip = m_img.copy()
         m_img_flip[1, -1] = -m_img_flip[1, -1]
         p1 = m_img_flip[:-1, -1]
         coil_dir = m_img_flip[:-1, 0]
         coil_face = m_img_flip[:-1, 1]
         coil_up = m_img_flip[:-1, 2]
-        p2_up = p1 + vec_length * coil_up
+        p2_up = p1 - vec_length * coil_up
         p2_face = p1 + vec_length * coil_face
         p2_dir = p1 + vec_length * coil_dir
         coil_norm = np.cross(coil_dir, coil_face)
         p2_norm = p1 - vec_length * coil_norm
-
-        return coil_face, p2_norm, p2_up
+        coil_dir = np.array([coord[3], coord[4], coord[5]])
+        return coil_dir, p2_norm, p2_up, coil_norm, p1
 
 
 
@@ -1375,7 +1384,58 @@ class Viewer(wx.Panel):
         if flag and actor:
             self.ren.AddActor(actor)
             self.actor_peel = actor
+
         self.Refresh()
+
+    def GetPeelCenters(self, centers, normals):
+        self.peel_centers = centers
+        self.peel_normals = normals
+        print('IN viewer volume centers', self.peel_normals)
+        self.Refresh()
+
+    def initlocator_viewer(self, locator):
+        self.locator = locator
+        print('locator', self.locator)
+        self.Refresh()
+
+
+    def getcellintersection(self,p1,p2):
+
+        intersectingCellIds = vtk.vtkIdList()  # This find store the triangles that intersect the coil's normal
+
+        self.x_actor = self.add_line(p1,p2,color=[.0, .0, 1.0])
+        self.y_actor = self.add_line([  4.5 ,-121.7  , 35.8],[  2.27807597, -54.2135652 ,  17.34345181], color=[1, .0, 0])
+        self.z_actor = self.add_line(np.array(self.peel_centers.GetPoint(2800)), p1, color=[0,1,0])
+        self.ren.AddActor(self.x_actor)
+        self.ren.AddActor(self.y_actor)
+        self.ren.AddActor(self.z_actor)
+        #self.locator.FindCellsAlongLine([  4.5 ,-121.7  , 35.8],[  2.27807597, -54.2135652 ,  17.34345181], .001, intersectingCellIds)
+        self.locator.FindCellsAlongLine(p1, p2, .001,intersectingCellIds)
+        print('intersectioncells', intersectingCellIds)
+
+        closestPoint = np.array((np.Inf, np.Inf, np.Inf))
+        closestDist = np.Inf
+
+       # print('center peel 2222',self.peel_centers.GetPoint(2800))
+
+        for i in range(intersectingCellIds.GetNumberOfIds()):
+            cellId = intersectingCellIds.GetId(i)
+            point = np.array(self.peel_centers.GetPoint(cellId))
+            print('point:',point)
+            distance = np.linalg.norm(point - p1)
+        #TODO : check this
+            if distance < closestDist:
+                closestDist = distance
+                closestPoint = point
+                pointnormal = np.array(self.peel_normals.GetTuple(cellId))
+                angle = np.rad2deg(np.arccos(np.dot(normal, no)))
+                print('the angle:', angle)
+
+        #self.y_actor = self.add_line(self.peel_centers.GetPoint(intersectingCellIds.GetId(0)), self.peel_centers.GetPoint(intersectingCellIds.GetId(1)),color=[.0, 1, 1.0])
+        #self.ren.AddActor(self.y_actor)
+        self.Refresh()
+
+
 
     def OnNavigationStatus(self, nav_status, vis_status):
         self.nav_status = nav_status
@@ -1443,14 +1503,20 @@ class Viewer(wx.Panel):
         self.z_actor.SetUserMatrix(m_img_vtk)
 
         #self.obj_arrow_actor.SetUserMatrix(m_img_vtk_test)
-        [coil_face, norm, pos2 ]= self.objectArrowlocation(m_img)
+        [coil_dir, norm, pos2, coil_norm, p1 ]= self.objectArrowlocation(m_img,coord)
+        #coil_dir = np.array([coord[3],coord[4],coord[5]])
         self.obj_arrow_actor.SetPosition(pos2)
-        self.obj_arrow_actor.SetOrientation(norm)
+        self.obj_arrow_actor.SetOrientation(coil_dir)
         self.obj_arrow_actor.GetProperty().SetColor([0.1, 1., 0.2])
         self.object_orientation_disk_actor.SetPosition(pos2)
-        self.object_orientation_disk_actor.SetOrientation(norm)
+        self.object_orientation_disk_actor.SetOrientation(coil_dir)
         self.object_orientation_disk_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
+        self.ren.RemoveActor(self.x_actor)
+        self.ren.RemoveActor(self.y_actor)
+        self.ren.RemoveActor(self.z_actor)
+        self.getcellintersection(p1,norm)
         self.Refresh()
+
 
     def UpdateTrackObjectState(self, evt=None, flag=None, obj_name=None, polydata=None):
         if flag:

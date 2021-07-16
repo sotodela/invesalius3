@@ -4,6 +4,7 @@ import pyacvd
 import pyvista
 # import numpy as np
 # import Trekker
+from pubsub import pub as Publisher
 
 
 class Brain:
@@ -69,21 +70,29 @@ class Brain:
         self.xyz2_refImageSpace = vtk.vtkTransformPolyDataFilter()
         self.xyz2_refImageSpace.SetTransform(xyz2_refImageSpace_transform)
 
-        # self.currentPeel = vtk.vtkPolyData()
+        #self.currentPeel = vtk.vtkPolyData()
         self.currentPeel = tmpPeel
+
         self.currentPeelNo = 0
         self.mapImageOnCurrentPeel()
 
         newPeel = vtk.vtkPolyData()
         newPeel.DeepCopy(self.currentPeel)
+        self.peel_normals = vtk.vtkFloatArray()
+        self.peel_centers = vtk.vtkFloatArray()
         self.peel.append(newPeel)
         self.currentPeelActor = vtk.vtkActor()
         self.currentPeelActor.SetUserMatrix(affine_vtk)
         self.getCurrentPeelActor()
+        # self.getCenters()
+        # print('init', self.peel_normals)
         self.peelActors.append(self.currentPeelActor)
-
+        self.locator = vtk.vtkCellLocator()  # This one will later find the triangle on the peel surface where the coil's normal intersect
         self.numberOfPeels = n_peels
         self.peelDown()
+
+
+
 
     def get_actor(self, n):
         return self.getPeelActor(n)
@@ -178,7 +187,19 @@ class Brain:
 
         # Set actor
         self.currentPeelActor.SetMapper(mapper)
+        ######## show grid
+        self.currentPeelActor.GetProperty().SetOpacity(0.1)
+        self.currentPeelActor.GetProperty().EdgeVisibilityOn()
+        self.currentPeelActor.GetProperty().SetEdgeColor(colors.GetColor3d('White'))
+        #############
+        #self.locator.SetDataSet(self.currentPeel)
+        self.currentPeel=self.peel[p]
+        self.locator.SetDataSet(self.peel[p])
+        self.locator.BuildLocator()
+        self.getCenters()
 
+        print('LOCATOR', self.locator)
+        print('getpeelactor', self.peel_normals)
         return self.currentPeelActor
 
     def getCurrentPeelActor(self):
@@ -220,7 +241,7 @@ class Brain:
         centerComputer.Update()
         peel_centers = vtk.vtkFloatArray()  # This stores the centers for easy access
         peel_centers = centerComputer.GetOutput()
-
+        self.peel_centers = peel_centers
         # Compute normals of triangles
         normalComputer = vtk.vtkPolyDataNormals()  # This computes normals of the triangles on the peel
         normalComputer.SetInputData(self.currentPeel)
@@ -229,7 +250,17 @@ class Brain:
         normalComputer.Update()
         peel_normals = vtk.vtkFloatArray()  # This converts to the normals to an array for easy access
         peel_normals = normalComputer.GetOutput().GetCellData().GetNormals()
-        return peel_normals, peel_centers
+        self.peel_normals = peel_normals
+
+
+
+
+    #def getnormalintersectionangle(self, pointnormal, coilnormal):
+    #        angle = np.rad2deg(np.arccos(np.dot(pointnormal, coilnormal)))
+    #        print('the angle:',angle)
+    #    return angle
+
+
 
 def cleanMesh(inp):
     cleaned = vtk.vtkCleanPolyData()
