@@ -1399,16 +1399,15 @@ class Viewer(wx.Panel):
         self.Refresh()
 
 
-    def getcellintersection(self,p1,p2):
-
+    def getcellintersection(self,p1,p2, coil_norm, coil_dir):
+        vtk_colors = vtk.vtkNamedColors()
         intersectingCellIds = vtk.vtkIdList()  # This find store the triangles that intersect the coil's normal
 
-        self.x_actor = self.add_line(p1,p2,color=[.0, .0, 1.0])
-        self.y_actor = self.add_line([  4.5 ,-121.7  , 35.8],[  2.27807597, -54.2135652 ,  17.34345181], color=[1, .0, 0])
-        self.z_actor = self.add_line(np.array(self.peel_centers.GetPoint(2800)), p1, color=[0,1,0])
+        self.x_actor = self.add_line(p1,p2,vtk_colors.GetColor3d('Blue'))
+        #self.z_actor = self.add_line(np.array(self.peel_centers.GetPoint(2800)), p1, color=[0,1,0])
         self.ren.AddActor(self.x_actor)
-        self.ren.AddActor(self.y_actor)
-        self.ren.AddActor(self.z_actor)
+
+        #self.ren.AddActor(self.z_actor)
         #self.locator.FindCellsAlongLine([  4.5 ,-121.7  , 35.8],[  2.27807597, -54.2135652 ,  17.34345181], .001, intersectingCellIds)
         self.locator.FindCellsAlongLine(p1, p2, .001,intersectingCellIds)
         print('intersectioncells', intersectingCellIds)
@@ -1428,9 +1427,17 @@ class Viewer(wx.Panel):
                 closestDist = distance
                 closestPoint = point
                 pointnormal = np.array(self.peel_normals.GetTuple(cellId))
-                angle = np.rad2deg(np.arccos(np.dot(normal, no)))
+                angle = np.rad2deg(np.arccos(np.dot(pointnormal, coil_norm)))
                 print('the angle:', angle)
+        self.y_actor = self.add_line(p1, closestPoint, vtk_colors.GetColor3d('White'))
+        self.ren.AddActor(self.y_actor)
+        self.obj_arrow_actor.SetPosition(closestPoint)
+        self.obj_arrow_actor.SetOrientation(coil_dir)
+        self.obj_arrow_actor.GetProperty().SetColor([0.1, 1., 0.2])
 
+        self.object_orientation_disk_actor.SetPosition(closestPoint)
+        self.object_orientation_disk_actor.SetOrientation(coil_dir)
+        self.object_orientation_disk_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
         #self.y_actor = self.add_line(self.peel_centers.GetPoint(intersectingCellIds.GetId(0)), self.peel_centers.GetPoint(intersectingCellIds.GetId(1)),color=[.0, 1, 1.0])
         #self.ren.AddActor(self.y_actor)
         self.Refresh()
@@ -1505,16 +1512,12 @@ class Viewer(wx.Panel):
         #self.obj_arrow_actor.SetUserMatrix(m_img_vtk_test)
         [coil_dir, norm, pos2, coil_norm, p1 ]= self.objectArrowlocation(m_img,coord)
         #coil_dir = np.array([coord[3],coord[4],coord[5]])
-        self.obj_arrow_actor.SetPosition(pos2)
-        self.obj_arrow_actor.SetOrientation(coil_dir)
-        self.obj_arrow_actor.GetProperty().SetColor([0.1, 1., 0.2])
-        self.object_orientation_disk_actor.SetPosition(pos2)
-        self.object_orientation_disk_actor.SetOrientation(coil_dir)
-        self.object_orientation_disk_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
+
+
         self.ren.RemoveActor(self.x_actor)
         self.ren.RemoveActor(self.y_actor)
         self.ren.RemoveActor(self.z_actor)
-        self.getcellintersection(p1,norm)
+        self.getcellintersection(p1,norm, coil_norm, coil_dir)
         self.Refresh()
 
 
