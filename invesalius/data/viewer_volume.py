@@ -174,6 +174,7 @@ class Viewer(wx.Panel):
         self.z_actor = None
         self.mark_actor = None
         self.obj_arrow_actor = None
+        self.obj_projection_arrow_actor = None
         self.object_orientation_disk_actor = None
 
         self._mode_cross = False
@@ -1286,12 +1287,14 @@ class Viewer(wx.Panel):
         self.y_actor = self.add_line([0., 0., 0.], [0., 1., 0.], color=[.0, 1.0, .0])
         self.z_actor = self.add_line([0., 0., 0.], [0., 0., 1.], color=[1.0, .0, .0])
         self.obj_arrow_actor = self.add_objectArrow([0., 0., 0.], [0., 0., 0.], vtk_colors.GetColor3d('Red'), 50)
+        self.obj_projection_arrow_actor = self.add_objectArrow([0., 0., 0.], [0., 0., 0.], vtk_colors.GetColor3d('Red'), 50)
         self.object_orientation_disk_actor = self.add_object_orientation_disk([0., 0., 0.], [0., 0., 0.], vtk_colors.GetColor3d('Red'))
         self.ren.AddActor(self.obj_actor)
         self.ren.AddActor(self.x_actor)
         self.ren.AddActor(self.y_actor)
         self.ren.AddActor(self.z_actor)
         self.ren.AddActor(self.obj_arrow_actor)
+        self.ren.AddActor(self.obj_projection_arrow_actor)
         self.ren.AddActor(self.object_orientation_disk_actor)
 
         # self.obj_axes = vtk.vtkAxesActor()
@@ -1432,17 +1435,17 @@ class Viewer(wx.Panel):
                 print('the angle:', angle)
         self.y_actor = self.add_line( closestPoint, closestPoint+75*pointnormal, vtk_colors.GetColor3d('Yellow' ))
         self.ren.AddActor(self.y_actor)
-        self.obj_arrow_actor.SetPosition(closestPoint)
-        self.obj_arrow_actor.SetOrientation(coil_dir)
+        self.obj_projection_arrow_actor.SetPosition(closestPoint)
+        self.obj_projection_arrow_actor.SetOrientation(coil_dir)
 
         self.object_orientation_disk_actor.SetPosition(closestPoint)
         self.object_orientation_disk_actor.SetOrientation(coil_dir)
         if angle < 30:
             self.object_orientation_disk_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Green'))
-            self.obj_arrow_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Green'))
+            self.obj_projection_arrow_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Green'))
         else:
             self.object_orientation_disk_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
-            self.obj_arrow_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
+            self.obj_projection_arrow_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
         #self.y_actor = self.add_line(self.peel_centers.GetPoint(intersectingCellIds.GetId(0)), self.peel_centers.GetPoint(intersectingCellIds.GetId(1)),color=[.0, 1, 1.0])
         #self.ren.AddActor(self.y_actor)
         self.Refresh()
@@ -1526,7 +1529,10 @@ class Viewer(wx.Panel):
         self.Refresh()
 
     def UpdateObjectArrowOrientation(self, m_img, coord):
+
         [coil_dir, norm, pos2, coil_norm, p1 ]= self.objectArrowlocation(m_img,coord)
+        self.obj_arrow_actor.SetPosition(p1)
+        self.obj_arrow_actor.SetOrientation(coil_dir)
         self.ren.RemoveActor(self.x_actor)
         self.ren.RemoveActor(self.y_actor)
         self.ren.RemoveActor(self.z_actor)
