@@ -1429,15 +1429,19 @@ class Viewer(wx.Panel):
                 pointnormal = np.array(self.peel_normals.GetTuple(cellId))
                 angle = np.rad2deg(np.arccos(np.dot(pointnormal, coil_norm)))
                 print('the angle:', angle)
-        self.y_actor = self.add_line(p1, closestPoint, vtk_colors.GetColor3d('White'))
+        self.y_actor = self.add_line( closestPoint, closestPoint+75*pointnormal, vtk_colors.GetColor3d('Yellow' ))
         self.ren.AddActor(self.y_actor)
         self.obj_arrow_actor.SetPosition(closestPoint)
         self.obj_arrow_actor.SetOrientation(coil_dir)
-        self.obj_arrow_actor.GetProperty().SetColor([0.1, 1., 0.2])
 
         self.object_orientation_disk_actor.SetPosition(closestPoint)
         self.object_orientation_disk_actor.SetOrientation(coil_dir)
-        self.object_orientation_disk_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
+        if angle < 30:
+            self.object_orientation_disk_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Green'))
+            self.object_arrow_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Green'))
+        else:
+            self.object_orientation_disk_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
+            self.object_arrow_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
         #self.y_actor = self.add_line(self.peel_centers.GetPoint(intersectingCellIds.GetId(0)), self.peel_centers.GetPoint(intersectingCellIds.GetId(1)),color=[.0, 1, 1.0])
         #self.ren.AddActor(self.y_actor)
         self.Refresh()
@@ -1517,7 +1521,7 @@ class Viewer(wx.Panel):
         self.ren.RemoveActor(self.x_actor)
         self.ren.RemoveActor(self.y_actor)
         self.ren.RemoveActor(self.z_actor)
-        self.getcellintersection(p1,norm, coil_norm, coil_dir)
+        self.getcellintersection(p1, norm, coil_norm, coil_dir)
         self.Refresh()
 
 
