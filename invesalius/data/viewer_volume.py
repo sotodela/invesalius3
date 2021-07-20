@@ -301,6 +301,7 @@ class Viewer(wx.Panel):
         # Related to object tracking during neuronavigation
         Publisher.subscribe(self.OnNavigationStatus, 'Navigation status')
         Publisher.subscribe(self.UpdateObjectOrientation, 'Update object matrix')
+        Publisher.subscribe(self.UpdateObjectArrowOrientation, 'Update object arrow matrix')
         Publisher.subscribe(self.UpdateTrackObjectState, 'Update track object state')
         Publisher.subscribe(self.UpdateShowObjectState, 'Update show object state')
 
@@ -1438,10 +1439,10 @@ class Viewer(wx.Panel):
         self.object_orientation_disk_actor.SetOrientation(coil_dir)
         if angle < 30:
             self.object_orientation_disk_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Green'))
-            self.object_arrow_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Green'))
+            self.obj_arrow_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Green'))
         else:
             self.object_orientation_disk_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
-            self.object_arrow_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
+            self.obj_arrow_actor.GetProperty().SetColor(vtk_colors.GetColor3d('Violet'))
         #self.y_actor = self.add_line(self.peel_centers.GetPoint(intersectingCellIds.GetId(0)), self.peel_centers.GetPoint(intersectingCellIds.GetId(1)),color=[.0, 1, 1.0])
         #self.ren.AddActor(self.y_actor)
         self.Refresh()
@@ -1513,17 +1514,24 @@ class Viewer(wx.Panel):
         self.y_actor.SetUserMatrix(m_img_vtk)
         self.z_actor.SetUserMatrix(m_img_vtk)
 
-        #self.obj_arrow_actor.SetUserMatrix(m_img_vtk_test)
+        ##self.obj_arrow_actor.SetUserMatrix(m_img_vtk_test)
+        #[coil_dir, norm, pos2, coil_norm, p1 ]= self.objectArrowlocation(m_img,coord)
+        ##coil_dir = np.array([coord[3],coord[4],coord[5]])
+
+
+        #self.ren.RemoveActor(self.x_actor)
+        #self.ren.RemoveActor(self.y_actor)
+        #self.ren.RemoveActor(self.z_actor)
+        #self.getcellintersection(p1, norm, coil_norm, coil_dir)
+        self.Refresh()
+
+    def UpdateObjectArrowOrientation(self, m_img, coord):
         [coil_dir, norm, pos2, coil_norm, p1 ]= self.objectArrowlocation(m_img,coord)
-        #coil_dir = np.array([coord[3],coord[4],coord[5]])
-
-
         self.ren.RemoveActor(self.x_actor)
         self.ren.RemoveActor(self.y_actor)
         self.ren.RemoveActor(self.z_actor)
         self.getcellintersection(p1, norm, coil_norm, coil_dir)
         self.Refresh()
-
 
     def UpdateTrackObjectState(self, evt=None, flag=None, obj_name=None, polydata=None):
         if flag:
