@@ -1553,6 +1553,8 @@ class Viewer(wx.Panel):
                 self.ren.RemoveActor(self.z_actor)
                 self.ren.RemoveActor(self.mark_actor)
                 self.ren.RemoveActor(self.obj_arrow_actor)
+                self.ren.RemoveActor(self.obj_projection_arrow_actor)
+                self.ren.RemoveActor(self.object_orientation_disk_actor)
                 self.obj_actor = None
                 self.x_actor = None
                 self.y_actor = None
