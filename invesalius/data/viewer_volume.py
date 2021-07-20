@@ -1352,7 +1352,7 @@ class Viewer(wx.Panel):
         vec_length = 175
         m_img_flip = m_img.copy()
         m_img_flip[1, -1] = -m_img_flip[1, -1]
-        p1 = m_img_flip[:-1, -1]
+        p1 = m_img_flip[:-1, -1] #coil center
         coil_dir = m_img_flip[:-1, 0]
         coil_face = m_img_flip[:-1, 1]
         coil_up = m_img_flip[:-1, 2]
@@ -1362,7 +1362,7 @@ class Viewer(wx.Panel):
         coil_norm = np.cross(coil_dir, coil_face)
         p2_norm = p1 - vec_length * coil_norm
         coil_dir = np.array([coord[3], coord[4], coord[5]])
-        return coil_dir, p2_norm, p2_up, coil_norm, p1
+        return coil_dir, p2_norm, coil_norm, p1
 
 
 
@@ -1530,7 +1530,7 @@ class Viewer(wx.Panel):
 
     def UpdateObjectArrowOrientation(self, m_img, coord):
 
-        [coil_dir, norm, pos2, coil_norm, p1 ]= self.objectArrowlocation(m_img,coord)
+        [coil_dir, norm, coil_norm, p1 ]= self.objectArrowlocation(m_img,coord)
         self.obj_arrow_actor.SetPosition(p1)
         self.obj_arrow_actor.SetOrientation(coil_dir)
         self.ren.RemoveActor(self.x_actor)
