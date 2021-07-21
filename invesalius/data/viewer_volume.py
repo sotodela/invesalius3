@@ -173,7 +173,7 @@ class Viewer(wx.Panel):
         self.y_actor = None
         self.z_actor = None
         self.mark_actor = None
-        self.obj_arrow_actor = None
+        #self.obj_arrow_actor = None
         self.obj_projection_arrow_actor = None
         self.object_orientation_disk_actor = None
 
@@ -1286,14 +1286,14 @@ class Viewer(wx.Panel):
         self.x_actor = self.add_line([0., 0., 0.], [1., 0., 0.], color=[.0, .0, 1.0])
         self.y_actor = self.add_line([0., 0., 0.], [0., 1., 0.], color=[.0, 1.0, .0])
         self.z_actor = self.add_line([0., 0., 0.], [0., 0., 1.], color=[1.0, .0, .0])
-        self.obj_arrow_actor = self.add_objectArrow([0., 0., 0.], [0., 0., 0.], vtk_colors.GetColor3d('Red'), 50)
+        #self.obj_arrow_actor = self.add_objectArrow([0., 0., 0.], [0., 0., 0.], vtk_colors.GetColor3d('Red'), 50)
         self.obj_projection_arrow_actor = self.add_objectArrow([0., 0., 0.], [0., 0., 0.], vtk_colors.GetColor3d('Red'), 50)
         self.object_orientation_disk_actor = self.add_object_orientation_disk([0., 0., 0.], [0., 0., 0.], vtk_colors.GetColor3d('Red'))
         self.ren.AddActor(self.obj_actor)
         self.ren.AddActor(self.x_actor)
         self.ren.AddActor(self.y_actor)
         self.ren.AddActor(self.z_actor)
-        self.ren.AddActor(self.obj_arrow_actor)
+        #self.ren.AddActor(self.obj_arrow_actor)
         self.ren.AddActor(self.obj_projection_arrow_actor)
         self.ren.AddActor(self.object_orientation_disk_actor)
 
@@ -1531,8 +1531,8 @@ class Viewer(wx.Panel):
     def UpdateObjectArrowOrientation(self, m_img, coord):
 
         [coil_dir, norm, coil_norm, p1 ]= self.objectArrowlocation(m_img,coord)
-        self.obj_arrow_actor.SetPosition(p1)
-        self.obj_arrow_actor.SetOrientation(coil_dir)
+        #self.obj_arrow_actor.SetPosition(p1)
+        #self.obj_arrow_actor.SetOrientation(coil_dir)
         self.ren.RemoveActor(self.x_actor)
         self.ren.RemoveActor(self.y_actor)
         self.ren.RemoveActor(self.z_actor)
@@ -1552,7 +1552,7 @@ class Viewer(wx.Panel):
                 self.ren.RemoveActor(self.y_actor)
                 self.ren.RemoveActor(self.z_actor)
                 self.ren.RemoveActor(self.mark_actor)
-                self.ren.RemoveActor(self.obj_arrow_actor)
+                #self.ren.RemoveActor(self.obj_arrow_actor)
                 self.ren.RemoveActor(self.obj_projection_arrow_actor)
                 self.ren.RemoveActor(self.object_orientation_disk_actor)
                 self.obj_actor = None
@@ -1560,7 +1560,7 @@ class Viewer(wx.Panel):
                 self.y_actor = None
                 self.z_actor = None
                 self.mark_actor = None
-                self.obj_arrow_actor = None
+                #self.obj_arrow_actor = None
                 self.obj_projection_arrow_actor = None
                 self.object_orientation_disk_actor = None
         self.Refresh()
@@ -1572,7 +1572,7 @@ class Viewer(wx.Panel):
             self.x_actor.SetVisibility(self.obj_state)
             self.y_actor.SetVisibility(self.obj_state)
             self.z_actor.SetVisibility(self.obj_state)
-            self.obj_arrow_actor.SetVisibility(self.obj_state)
+            #self.obj_arrow_actor.SetVisibility(self.obj_state)
             self.obj_projection_arrow_actor(self.obj_state)
             self.object_orientation_disk_actor(self.obj_state)
         self.Refresh()
