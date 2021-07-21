@@ -1572,9 +1572,7 @@ class Viewer(wx.Panel):
             self.x_actor.SetVisibility(self.obj_state)
             self.y_actor.SetVisibility(self.obj_state)
             self.z_actor.SetVisibility(self.obj_state)
-            #self.obj_arrow_actor.SetVisibility(self.obj_state)
-            self.obj_projection_arrow_actor(self.obj_state)
-            self.object_orientation_disk_actor(self.obj_state)
+
         self.Refresh()
 
     def OnUpdateTracts(self, root=None, affine_vtk=None, coord_offset=None):
