@@ -1410,7 +1410,7 @@ class Viewer(wx.Panel):
         self.x_actor = self.add_line(p1,p2,vtk_colors.GetColor3d('Blue'))
         #self.z_actor = self.add_line(np.array(self.peel_centers.GetPoint(2800)), p1, color=[0,1,0])
         self.ren.AddActor(self.x_actor)
-
+        #TODO : CHECK IF THERE ARE INTERSECTION CELLS AND ADD THE ARROW AND DISC ACCORDANGLY
         #self.ren.AddActor(self.z_actor)
         #self.locator.FindCellsAlongLine([  4.5 ,-121.7  , 35.8],[  2.27807597, -54.2135652 ,  17.34345181], .001, intersectingCellIds)
         self.locator.FindCellsAlongLine(p1, p2, .001,intersectingCellIds)
@@ -1560,6 +1560,9 @@ class Viewer(wx.Panel):
                 self.y_actor = None
                 self.z_actor = None
                 self.mark_actor = None
+                self.obj_arrow_actor = None
+                self.obj_projection_arrow_actor = None
+                self.object_orientation_disk_actor = None
         self.Refresh()
 
     def UpdateShowObjectState(self, state):
@@ -1569,6 +1572,9 @@ class Viewer(wx.Panel):
             self.x_actor.SetVisibility(self.obj_state)
             self.y_actor.SetVisibility(self.obj_state)
             self.z_actor.SetVisibility(self.obj_state)
+            self.obj_arrow_actor.SetVisibility(self.obj_state)
+            self.obj_projection_arrow_actor(self.obj_state)
+            self.object_orientation_disk_actor(self.obj_state)
         self.Refresh()
 
     def OnUpdateTracts(self, root=None, affine_vtk=None, coord_offset=None):
