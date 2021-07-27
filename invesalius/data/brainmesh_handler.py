@@ -11,6 +11,8 @@ class Brain:
     def __init__(self, img_path, mask_path, n_peels, affine_vtk):
         self.peel = []
         self.peelActors = []
+        self.peel_normals = vtk.vtkFloatArray()
+        self.peel_centers = vtk.vtkPolyData()
 
         T1_reader = vtk.vtkNIFTIImageReader()
         T1_reader.SetFileName(img_path)
@@ -67,26 +69,42 @@ class Brain:
         qFormMatrix.Invert()
         xyz2_refImageSpace_transform.SetMatrix(qFormMatrix)
 
+
         self.xyz2_refImageSpace = vtk.vtkTransformPolyDataFilter()
         self.xyz2_refImageSpace.SetTransform(xyz2_refImageSpace_transform)
 
-        #self.currentPeel = vtk.vtkPolyData()
         self.currentPeel = tmpPeel
+
+        #self.currentPeel = vtk.vtkPolyData()
+
+        ## tried to change the position
+        peel_transform = vtk.vtkTransform()
+        peel_transform.SetMatrix(affine_vtk)
+        self.refpeelspace = vtk.vtkTransformPolyDataFilter()
+        self.refpeelspace.SetInputData(self.currentPeel)
+        self.refpeelspace.SetTransform(peel_transform)
+        self.refpeelspace.Update()
+        self.currentPeel = self.refpeelspace.GetOutput()
+
 
         self.currentPeelNo = 0
         self.mapImageOnCurrentPeel()
 
         newPeel = vtk.vtkPolyData()
         newPeel.DeepCopy(self.currentPeel)
-        self.peel_normals = vtk.vtkFloatArray()
-        self.peel_centers = vtk.vtkFloatArray()
+
         self.peel.append(newPeel)
         self.currentPeelActor = vtk.vtkActor()
         self.currentPeelActor.SetUserMatrix(affine_vtk)
         self.getCurrentPeelActor()
+        self.peelActors.append(self.currentPeelActor)
+
+
+
+
+
         # self.getCenters()
         # print('init', self.peel_normals)
-        self.peelActors.append(self.currentPeelActor)
         self.locator = vtk.vtkCellLocator()  # This one will later find the triangle on the peel surface where the coil's normal intersect
         self.numberOfPeels = n_peels
         self.peelDown()
@@ -135,6 +153,7 @@ class Brain:
         self.xyz2_refImageSpace.SetInputData(self.currentPeel)
         self.xyz2_refImageSpace.Update()
 
+        # mapping the grayscale pixel values to the peel
         probe = vtk.vtkProbeFilter()
         probe.SetInputData(self.xyz2_refImageSpace.GetOutput())
         probe.SetSourceData(self.refImage)
@@ -144,11 +163,12 @@ class Brain:
         self.refImageSpace2_xyz.Update()
 
         self.currentPeel = self.refImageSpace2_xyz.GetOutput()
+        #self.currentPeel = probe.GetOutput()
 
     def peelDown(self):
         for i in range(0, self.numberOfPeels):
             self.sliceDown()
-            self.mapImageOnCurrentPeel()
+            #self.mapImageOnCurrentPeel()
 
             newPeel = vtk.vtkPolyData()
             newPeel.DeepCopy(self.currentPeel)
@@ -175,9 +195,25 @@ class Brain:
         # colorLookupTable.SetTableRange(0, 150)
         colorLookupTable.Build()
 
+        # self.locator.SetDataSet(self.currentPeel)
+        self.currentPeel = self.peel[p]
+
+        ##Add this
+        #self.mapImageOnCurrentPeel()
+
+        ## tried to change the position
+        #peel_transform = vtk.vtkTransform()
+        #peel_transform.SetMatrix(affine_vtk)
+        #self.refpeelspace = vtk.vtkTransformPolyDataFilter()
+        #self.refpeelspace.SetInputData(self.currentPeel)
+        #self.refpeelspace.SetTransform(peel_transform)
+        #self.refpeelspace.Update()
+        #self.currentPeel = self.refpeelspace.GetOutput()
+
+
         # Set mapper auto
         mapper = vtk.vtkOpenGLPolyDataMapper()
-        mapper.SetInputData(self.peel[p])
+        mapper.SetInputData(self.currentPeel)
         # mapper.SetScalarRange(0, 1000)
         # mapper.SetScalarRange(0, 250)
         mapper.SetScalarRange(0, 200)
@@ -192,8 +228,8 @@ class Brain:
         self.currentPeelActor.GetProperty().EdgeVisibilityOn()
         self.currentPeelActor.GetProperty().SetEdgeColor(colors.GetColor3d('White'))
         #############
-        #self.locator.SetDataSet(self.currentPeel)
-        self.currentPeel=self.peel[p]
+
+
         self.locator.SetDataSet(self.peel[p])
         self.locator.BuildLocator()
         self.getCenters()
@@ -201,6 +237,18 @@ class Brain:
         print('LOCATOR', self.locator)
         print('getpeelactor', self.peel_normals)
         return self.currentPeelActor
+
+    def transformPolyData(actor):
+        polyData = vtk.vtkPolyData()
+        polyData.DeepCopy(actor.GetMapper().GetInput())
+        transform = vtk.vtkTransform()
+        transform.SetMatrix(actor.GetMatrix())
+        fil = vtk.vtkTransformPolyDataFilter()
+        fil.SetTransform(transform)
+        fil.SetInputDataObject(polyData)
+        fil.Update()
+        polyData.DeepCopy(fil.GetOutput())
+        return polyData
 
     def getCurrentPeelActor(self):
         colors = vtk.vtkNamedColors()
@@ -231,15 +279,16 @@ class Brain:
         self.currentPeelActor.SetMapper(mapper)
         self.currentPeelActor.GetProperty().SetBackfaceCulling(1)
         self.currentPeelActor.GetProperty().SetOpacity(0.5)
-
+        self.currentPeelActor.GetProperty().EdgeVisibilityOn()
+        self.currentPeelActor.GetProperty().SetEdgeColor(colors.GetColor3d('Red'))
         return self.currentPeelActor
 
     def getCenters(self):
         # Compute centers of triangles
-        centerComputer = vtk.vtkCellCenters()  # This computes ceners of the triangles on the peel
+        centerComputer = vtk.vtkCellCenters()  # This computes centers of the triangles on the peel
         centerComputer.SetInputData(self.currentPeel)
         centerComputer.Update()
-        peel_centers = vtk.vtkFloatArray()  # This stores the centers for easy access
+        #peel_centers = vtk.vtkFloatArray()  # This stores the centers for easy access
         peel_centers = centerComputer.GetOutput()
         self.peel_centers = peel_centers
         # Compute normals of triangles
@@ -248,7 +297,7 @@ class Brain:
         normalComputer.ComputePointNormalsOff()
         normalComputer.ComputeCellNormalsOn()
         normalComputer.Update()
-        peel_normals = vtk.vtkFloatArray()  # This converts to the normals to an array for easy access
+        #peel_normals = vtk.vtkFloatArray()  # This converts to the normals to an array for easy access
         peel_normals = normalComputer.GetOutput().GetCellData().GetNormals()
         self.peel_normals = peel_normals
 
