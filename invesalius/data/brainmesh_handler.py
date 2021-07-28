@@ -77,10 +77,7 @@ class Brain:
         currentPeel= self.mapImageOnCurrentPeel(currentPeel)
 
         newPeel = vtk.vtkPolyData()
-
         newPeel.DeepCopy(currentPeel)
-
-
         self.peel_normals = vtk.vtkFloatArray()
         self.peel_centers = vtk.vtkFloatArray()
         self.peel.append(newPeel)
@@ -197,7 +194,6 @@ class Brain:
         # Set actor
         self.currentPeelActor.SetMapper(mapper)
 
-
         currentPeel = self.transformpeelposition(p, affine_vtk)
 
         self.locator.SetDataSet(currentPeel)
@@ -239,25 +235,23 @@ class Brain:
 
         return self.currentPeelActor
 
-
     def getCenters(self, currentPeel): #change name of variable for not confusion
         # Compute centers of triangles
         centerComputer = vtk.vtkCellCenters()  # This computes centers of the triangles on the peel
-        centerComputer.SetInputData(self.currentPeel)
+        centerComputer.SetInputData(currentPeel)
         centerComputer.Update()
-        peel_centers = vtk.vtkFloatArray()  # This stores the centers for easy access
+        # This stores the centers for easy access
         peel_centers = centerComputer.GetOutput()
         self.peel_centers = peel_centers
-
 
     def getNormals(self, currentPeel): #change name of variable
         # Compute normals of triangles
         normalComputer = vtk.vtkPolyDataNormals()  # This computes normals of the triangles on the peel
-        normalComputer.SetInputData(self.currentPeel)
+        normalComputer.SetInputData(currentPeel)
         normalComputer.ComputePointNormalsOff()
         normalComputer.ComputeCellNormalsOn()
         normalComputer.Update()
-        peel_normals = vtk.vtkFloatArray()  # This converts to the normals to an array for easy access
+        # This converts to the normals to an array for easy access
         peel_normals = normalComputer.GetOutput().GetCellData().GetNormals()
         self.peel_normals = peel_normals
 
@@ -348,5 +342,3 @@ def downsample(inp):
     # out.SetPolys(Remesh.GetOutput().GetPolys())
 
     return Remesh
-
-
