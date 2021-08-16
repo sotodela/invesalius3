@@ -378,6 +378,32 @@ def ShowImportBitmapDirDialog(self):
     os.chdir(current_dir)
     return path
 
+def add_file_general_file(msg):
+    session = ses.Session()
+    last_directory = session.get('paths', 'last_directory_%d', '')
+    dlg = wx.FileDialog(None,  msg, defaultDir=last_directory,
+                        defaultFile="", wildcard="",
+                        style=wx.FD_OPEN | wx.FD_CHANGE_DIR)
+    filename = None
+    try:
+        if dlg.ShowModal() == wx.ID_OK:
+            # GetPath returns in unicode, if a path has non-ascii characters a
+            # UnicodeEncodeError is raised. To avoid this, path is encoded in utf-8
+            if sys.platform == "win32":
+                filename = dlg.GetPath()
+            else:
+                filename = dlg.GetPath().encode('utf-8')
+
+    except(wx._core.PyAssertionError):  # TODO: error win64
+        if (dlg.GetPath()):
+            filename = dlg.GetPath()
+
+    if filename:
+        session['paths']['last_directory_%d'] = os.path.split(dlg.GetPath())[0]
+        session.WriteSessionFile()
+    dlg.Destroy()
+
+    return filename
 
 def ShowImportOtherFilesDialog(id_type, msg='Import NIFTi 1 file'):
     # Default system path

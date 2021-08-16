@@ -18,6 +18,7 @@
 #--------------------------------------------------------------------------
 import invesalius.constants as const
 import invesalius.gui.dialogs as dlg
+
 # TODO: Disconnect tracker when a new one is connected
 # TODO: Test if there are too many prints when connection fails
 # TODO: Redesign error messages. No point in having "Could not connect to default tracker" in all trackers
@@ -78,16 +79,22 @@ def OptitrackTracker(tracker_id):
     -------
     trck_init : local name for Optitrack module
     """
+    Cal_optitrack = dlg.add_file_general_file("Add Calibration")
+    User_profile_optitrack = dlg.add_file_general_file("Add User Profile")
+
     trck_init = None
     try:
         import optitrack
         trck_init = optitrack.optr()
-        if trck_init.Initialize()==0:
+        #Cal_optitrack = "Calibration.cal"
+        #User_profile_optitrack = "UserProfile.motive"
+        if trck_init.Initialize(Cal_optitrack, User_profile_optitrack)==0:
             trck_init.Run() #Runs once Run function, to update cameras.
         else:
             trck_init = None
     except ImportError:
         print('Error')
+
     return trck_init, 'wrapper'
 
 def PolarisTracker(tracker_id):
