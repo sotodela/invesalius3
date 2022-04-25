@@ -331,7 +331,7 @@ class E_field_brain:
 
 ############## temporarly add efield csv
     def load_temporarly_e_field_CSV(self):
-        filename = r'C:\Users\anaso\Documents\Data\e-field_simulation\Enorm_inCoilpoint200sorted.csv'
+        filename = r'C:\Users\anaso\Documents\Data\e-field_simulation\Enorm1_from_Cpp_lib.csv'
         with open(filename, 'r') as file:
             my_reader = csv.reader(file, delimiter=',')
             rows = []
