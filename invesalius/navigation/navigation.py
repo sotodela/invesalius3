@@ -20,6 +20,7 @@
 import threading
 import queue
 from time import sleep
+import invesalius.gui.dialogs as dlg
 
 import wx
 import numpy as np
@@ -36,7 +37,7 @@ import invesalius.data.transformations as tr
 import invesalius.data.vtk_utils as vtk_utils
 from invesalius.pubsub import pub as Publisher
 from invesalius.utils import Singleton
-
+time_elapsed=[]
 class QueueCustom(queue.Queue):
     """
     A custom queue subclass that provides a :meth:`clear` method.
@@ -121,15 +122,11 @@ class UpdateNavigationScene(threading.Thread):
                 wx.CallAfter(Publisher.sendMessage, 'Update slice viewer')
                 wx.CallAfter(Publisher.sendMessage, 'Sensor ID', markers_flag=markers_flag)
 
-                if view_obj:
-                    wx.CallAfter(Publisher.sendMessage, 'Update object matrix', m_img=m_img, coord=coord)
-                    wx.CallAfter(Publisher.sendMessage, 'Update object arrow matrix', m_img=m_img, coord=coord, flag= self.peel_loaded)
 
-                self.neuronavigation_api.update_coil_pose(
-                    position=coord[:3],
-                    orientation=coord[3:],
-                )
-
+                # self.neuronavigation_api.update_coil_pose(
+                #     position=coord[:3],
+                #     orientation=coord[3:],
+                # )
                 if self.e_field_loaded:
                     wx.CallAfter(Publisher.sendMessage, 'Update point location for e-field calculation', m_img=m_img,
                                  coord=coord, queue_IDs=self.e_field_IDs_queue)
@@ -139,8 +136,9 @@ class UpdateNavigationScene(threading.Thread):
                             wx.CallAfter(Publisher.sendMessage, 'Get enorm', enorm=enorm)
                         finally:
                             self.e_field_norms_queue.task_done()
-
-
+                if view_obj:
+                    wx.CallAfter(Publisher.sendMessage, 'Update object matrix', m_img=m_img, coord=coord)
+                    wx.CallAfter(Publisher.sendMessage, 'Update object arrow matrix', m_img=m_img, coord=coord, flag= self.peel_loaded)
                 self.coord_queue.task_done()
                 # print('UpdateScene: done {}'.format(count))
                 # count += 1
@@ -212,7 +210,7 @@ class Navigation(metaclass=Singleton):
     def __bind_events(self):
         Publisher.subscribe(self.CoilAtTarget, 'Coil at target')
         Publisher.subscribe(self.UpdateSerialPort, 'Update serial port')
-
+        Publisher.subscribe(self.GetDatatosave, 'Get data to save')
     def CoilAtTarget(self, state):
         self.coil_at_target = state
 
@@ -381,6 +379,10 @@ class Navigation(metaclass=Singleton):
             if self.neuronavigation_api is not None:
                 self.neuronavigation_api.add_pedal_callback(name='navigation', callback=self.PedalStateChanged)
 
+    def GetDatatosave(self, save_id, enorms):
+        self.save_id = save_id
+        self.enorms = enorms
+
     def StopNavigation(self):
         self.event.set()
 
@@ -419,4 +421,22 @@ class Navigation(metaclass=Singleton):
 
 
         vis_components = [self.serial_port_in_use, self.view_tracts,  self.peel_loaded, self.e_field_loaded]
+
         Publisher.sendMessage("Navigation status", nav_status=False, vis_status=vis_components)
+
+        # filename = dlg.ShowLoadSaveDialog(message=_(u"Save object registration as..."),
+        #                                   wildcard=_("Registration files (*.obr)|*.obr"),
+        #                                   style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        #                                   default_filename="time_elapsed.txt", save_ext="txt")
+        # np.savetxt(filename, np.array(time_elapsed), fmt='%.6f', delimiter='\t', newline='\n')
+        # print(time_elapsed)
+        # filename = dlg.ShowLoadSaveDialog(message=_(u"Save enorm..."),
+        #                                   wildcard=_("Registration files (*.obr)|*.obr"),
+        #                                   style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        #                                   default_filename="enorms.txt", save_ext="txt")
+        # np.savetxt(filename, np.array(self.enorms), fmt='%.10f', delimiter='\t', newline='\n')
+        # filename = dlg.ShowLoadSaveDialog(message=_(u"Save ids..."),
+        #                                   wildcard=_("Registration files (*.obr)|*.obr"),
+        #                                   style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        #                                   default_filename="enorms_ids.txt", save_ext="txt")
+        # np.savetxt(filename, np.array(self.save_id), fmt='%.4f', delimiter='\t', newline='\n')

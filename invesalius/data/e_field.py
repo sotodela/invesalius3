@@ -5,7 +5,7 @@ import time
 import numpy as np
 from vtkmodules.vtkCommonCore import (
     vtkIdList)
-
+elapsed_time =[]
 def Get_coil_position(m_img):
     # coil position cp : the center point at the bottom of the coil casing,
     # corresponds to the origin of the coil template.
@@ -75,9 +75,12 @@ class Visualize_E_field_Thread(threading.Thread):
                             if self.debug:
                                 enorm = self.enorm_debug
                             else:
+                                start_time = time.perf_counter()
                                 enorm = self.neuronavigation_api.update_efield(position=cp, orientation=coord[3:], T_rot=T_rot)
                             try:
                                 self.e_field_norms_queue.put_nowait((enorm))
+                                end_time = time.perf_counter()
+                                print('in e_field',end_time-start_time)
                             except queue.Full:
                                 pass
 

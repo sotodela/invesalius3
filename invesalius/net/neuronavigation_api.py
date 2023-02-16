@@ -65,8 +65,8 @@ class NeuronavigationApi(metaclass=Singleton):
         assert self._hasmethod(connection, 'set_callback__set_markers')
 
     def __bind_events(self):
-        Publisher.subscribe(self.update_coil_at_target, 'Coil at target')
-        Publisher.subscribe(self.update_focus, 'Set cross focal point')
+        #Publisher.subscribe(self.update_coil_at_target, 'Coil at target')
+        #Publisher.subscribe(self.update_focus, 'Set cross focal point')
         Publisher.subscribe(self.update_target_orientation, 'Update target orientation')
 
     # Functions for InVesalius to send updates.

@@ -27,7 +27,7 @@ import numpy as np
 from numpy.core.umath_tests import inner1d
 import wx
 import queue
-
+import time
 # TODO: Check that these imports are not used -- vtkLookupTable, vtkMinimalStandardRandomSequence, vtkPoints, vtkUnsignedCharArray
 from vtkmodules.vtkCommonComputationalGeometry import vtkParametricTorus
 from vtkmodules.vtkCommonCore import (
@@ -271,7 +271,10 @@ class Viewer(wx.Panel):
 
         self.set_camera_position = True
         self.old_coord = np.zeros((6,),dtype=float)
-
+        self.save_efield_norms = []
+        self.save_ids = []
+        self.saveflag = 0
+        self.file_count =1
     def __bind_events(self):
         Publisher.subscribe(self.LoadActor,
                                  'Load surface actor into viewer')
@@ -1055,11 +1058,29 @@ class Viewer(wx.Panel):
             arrow_pitch_y2.GetProperty().SetColor(1, 0, 0)
 
             if thrdist and thrcoordx and thrcoordy and thrcoordz:
+
                 self.dummy_coil_actor.GetProperty().SetDiffuseColor(vtk_colors.GetColor3d('Green'))
                 wx.CallAfter(Publisher.sendMessage, 'Coil at target', state=True)
+                #print(self.save_ids)
+                if self.saveflag==0:
+                    print("efield:")
+                    #self.save_efield_norms.append(self.e_field_norms)
+                    for h in range(self.radius_list.GetNumberOfIds()):
+                        self.save_ids.append(self.radius_list.GetId(h))
+                    print("ids:")
+                    #Publisher.sendMessage('Get data to save', save_id = self.save_ids, enorms =self.save_efield_norms)
+                    name = "_".join((str(self.file_count), "ids.txt"))
+                    filename ="/".join(('/app/data/neuronavigation_data',name))
+                    np.savetxt(filename, np.array(self.save_ids), fmt='%.2f', delimiter='\t', newline='\n')
+                    name = "_".join((str(self.file_count), "enorms.txt"))
+                    filename = "/".join(('/app/data/neuronavigation_data',name))
+                    np.savetxt(filename, np.array(self.e_field_norms), fmt='%.8f', delimiter='\t', newline='\n')
+                    self.saveflag = 1
+                    self.file_count = self.file_count + 1
             else:
                 self.dummy_coil_actor.GetProperty().SetDiffuseColor(vtk_colors.GetColor3d('DarkOrange'))
                 wx.CallAfter(Publisher.sendMessage, 'Coil at target', state=False)
+                self.saveflag = 0
 
             self.arrow_actor_list = arrow_roll_x1, arrow_roll_x2, arrow_yaw_z1, arrow_yaw_z2, \
                                     arrow_pitch_y1, arrow_pitch_y2
@@ -1397,7 +1418,7 @@ class Viewer(wx.Panel):
         self.obj_actor.GetProperty().SetAmbientColor(vtk_colors.GetColor3d('GhostWhite'))
         self.obj_actor.GetProperty().SetSpecular(30)
         self.obj_actor.GetProperty().SetSpecularPower(80)
-        self.obj_actor.GetProperty().SetOpacity(.4)
+        self.obj_actor.GetProperty().SetOpacity(.1)
         self.obj_actor.SetVisibility(0)
 
         self.x_actor = self.add_line([0., 0., 0.], [1., 0., 0.], color=[.0, .0, 1.0])
@@ -1604,11 +1625,12 @@ class Viewer(wx.Panel):
     def GetEfieldMaxMin(self, e_field_norms):
         self.e_field_norms = e_field_norms
         max = np.amax(self.e_field_norms)
-        min = np.amin(self.e_field_norms)
-        self.min = min
-        self.max = max
+        min = 0#np.amin(self.e_field_norms)
+        self.min = 0
+        self.max = 0.001
+        # print('this is selfmin:',self.min)
+        # print('this is selfmax:', self.max)
         wx.CallAfter(Publisher.sendMessage, 'Update efield vis')
-
 
     def GetEfieldActor(self, e_field_actor):
         self.efield_actor  = e_field_actor
@@ -1655,6 +1677,7 @@ class Viewer(wx.Panel):
 
     def OnUpdateEfieldvis(self):
         if self.radius_list.GetNumberOfIds() != 0:
+            start_time = time.perf_counter()
             lut = self.CreateLUTtableforefield(self.min, self.max)
 
             self.colors_init.SetNumberOfComponents(3)
@@ -1664,12 +1687,15 @@ class Viewer(wx.Panel):
                 dcolor = 3 * [0.0]
                 index_id = self.radius_list.GetId(h)
                 lut.GetColor(self.e_field_norms[index_id], dcolor)
+                #print(self.e_field_norms[index_id])
                 color = 3 * [0.0]
                 for j in range(0, 3):
                     color[j] = int(255.0 * dcolor[j])
                 self.colors_init.InsertTuple(index_id, color)
             self.efield_mesh.GetPointData().SetScalars(self.colors_init)
             self.RecolorEfieldActor(self.efield_mesh)
+            end_time = time.perf_counter()
+            print('in vis', end_time - start_time)
             wx.CallAfter(Publisher.sendMessage, 'Render volume viewer')
 
         else:
