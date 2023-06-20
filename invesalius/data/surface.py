@@ -408,6 +408,25 @@ class SurfaceManager():
             np.array(data['p'], dtype=np.float32).tofile(f)
             np.array(data['e'], dtype=np.int32).tofile(f)
 
+    def OnVectorCustomBinFile(self, polydata):
+        idlist = vtkIdList()
+        points = np.zeros((polydata.GetNumberOfPoints(), 3))
+        elements = np.zeros((polydata.GetNumberOfCells(), 3))
+        id = 0
+        nop = polydata.GetNumberOfPoints()
+        noe = polydata.GetNumberOfCells()
+        for i in range(polydata.GetNumberOfPoints()):
+            x = polydata.GetPoint(i)
+            points[i] = [j / 1000 for j in x]
+        for i in range(polydata.GetNumberOfCells()):
+            polydata.GetCellPoints(i, idlist)
+            elements[i, 0] = idlist.GetId(0)
+            elements[i, 1] = idlist.GetId(1)
+            elements[i, 2] = idlist.GetId(2)
+        data = {'p': points, 'e': elements}
+        return np.append(np.array(id, dtype=np.int32), np.array(nop, dtype=np.int32), np.array(noe, dtype=np.int32),np.array(data['p'], dtype=np.float32), np.array(data['e'], dtype=np.int32))
+
+
     def OnImportJsonConfig(self, filename, convert_to_inv):
         import json
         with open(filename, 'r') as config_file:
@@ -428,6 +447,8 @@ class SurfaceManager():
             cortex_save_file = config_dict['path_meshes']+'export_inv/'+config_dict['cortex']
             polydata = proj.surface_dict[surface_index_cortex].polydata
             self.OnWriteCustomBinFile(polydata,cortex_save_file)
+            appended_vector = self.OnVectorCustomBinFile(polydata)
+            print('vectormesh', appended_vector)
             Publisher.sendMessage('Get Efield actor from json',efield_actor = polydata, surface_index_cortex = surface_index_cortex)
             bmeshes_list = []
             ci_list = []
