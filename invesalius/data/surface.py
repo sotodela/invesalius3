@@ -424,7 +424,8 @@ class SurfaceManager():
             elements[i, 1] = idlist.GetId(1)
             elements[i, 2] = idlist.GetId(2)
         data = {'p': points, 'e': elements}
-        return np.append(np.array(id, dtype=np.int32), np.array(nop, dtype=np.int32), np.array(noe, dtype=np.int32),np.array(data['p'], dtype=np.float32), np.array(data['e'], dtype=np.int32))
+        tests = []
+        return np.append(tests, [np.array(id, dtype=np.int32), np.array(nop, dtype=np.int32), np.array(noe, dtype=np.int32),np.array(data['p'], dtype=np.float32), np.array(data['e'], dtype=np.int32)])
 
 
     def OnImportJsonConfig(self, filename, convert_to_inv):
