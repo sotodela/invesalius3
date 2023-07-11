@@ -1784,7 +1784,7 @@ class Viewer(wx.Panel):
         self.coil_position_Trot = None
         self.e_field_norms = None
         self.efield= efield
-        self.max_efield_vector = self.CreateActorArrow(direction=[0., 0., 0.], orientation=[0., 0., 0.], colour=[0, 0.0, 1.0],
+        self.max_efield_vector = self.CreateActorArrow(direction=[0., 0., 0.], orientation=[0., 0., 0.], colour=[0, 0.0, 0],
                                                        size=15)
         self.vectorfield_actor =[]
         self.vectorfield_actor.append(self.CreateActorArrow(direction=[0., 0., 0.], orientation=[0., 0., 0.], colour=[1.0, 0.0, 1.0],
