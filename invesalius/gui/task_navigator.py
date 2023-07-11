@@ -2846,6 +2846,7 @@ class E_fieldPanel(wx.Panel):
         Publisher.sendMessage('Update status in GUI', value=0, label="Ready")
 
     def OnEnableEfield(self, evt, ctrl):
+        import invesalius.data.e_field as e_field
         efield_enabled = ctrl.GetValue()
         if efield_enabled:
             if self.session.GetConfig('debug_efield'):
@@ -2878,6 +2879,7 @@ class E_fieldPanel(wx.Panel):
             self.e_field_loaded = False
             #self.combo_surface_name.Enable(True)
         self.navigation.e_field_loaded = self.e_field_loaded
+        E_field = e_field()
 
     def OnEnablePlotVectors(self, evt, ctrl):
         self.plot_efield_vectors = ctrl.GetValue()

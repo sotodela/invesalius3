@@ -6,6 +6,14 @@ import numpy as np
 from vtkmodules.vtkCommonCore import (
     vtkIdList)
 
+
+class E_field(metaclass=Singleton):
+    def __init__(self, neuronavigation_api, efield_data_saved, plot_efield_vectors):
+        self.neuronavigation_api = neuronavigation_api
+        self.efield_data_saved = efield_data_saved
+        self.plot_efield_vectors = plot_efield_vectors
+
+
 def Get_coil_position(m_img):
     # coil position cp : the center point at the bottom of the coil casing,
     # corresponds to the origin of the coil template.
