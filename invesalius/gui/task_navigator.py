@@ -75,6 +75,7 @@ from invesalius.navigation.robot import Robot
 from invesalius.data.converters import to_vtk, convert_custom_bin_to_vtk
 
 from invesalius.net.neuronavigation_api import NeuronavigationApi
+from invesalius.data.e_field import Efield
 
 HAS_PEDAL_CONNECTION = True
 try:
@@ -187,7 +188,7 @@ class InnerFoldPanel(wx.Panel):
             pedal_connection=pedal_connection,
             neuronavigation_api=neuronavigation_api,
         )
-
+        efield = Efield()
         # TODO: Initialize checkboxes before panels: they are updated by ObjectRegistrationPanel when loading its state.
         #   A better solution would be to have these checkboxes save their own state, independent of the panels, but that's
         #   not implemented yet.
@@ -261,7 +262,7 @@ class InnerFoldPanel(wx.Panel):
 
         # Fold 3 - Markers panel
         item = fold_panel.AddFoldPanel(_("Markers"), collapsed=True)
-        mtw = MarkersPanel(item, navigation, tracker, icp)
+        mtw = MarkersPanel(item, navigation, tracker, icp, efield)
 
         fold_panel.ApplyCaptionStyle(item, style)
         fold_panel.AddFoldPanelWindow(item, mtw, spacing= 0,
@@ -295,7 +296,7 @@ class InnerFoldPanel(wx.Panel):
         # Fold 7 - E-field
 
         item = fold_panel.AddFoldPanel(_("E-field"), collapsed=True)
-        etw = E_fieldPanel(item, navigation)
+        etw = E_fieldPanel(item, navigation, efield)
         fold_panel.ApplyCaptionStyle(item, style)
         fold_panel.AddFoldPanelWindow(item, etw, spacing=0,
                                         leftSpacing=0, rightSpacing=0)
@@ -1431,7 +1432,7 @@ class MarkersPanel(wx.Panel):
             }
 
 
-    def __init__(self, parent, navigation, tracker, icp):
+    def __init__(self, parent, navigation, tracker, icp, efield):
         wx.Panel.__init__(self, parent)
         try:
             default_colour = wx.SystemSettings.GetColour(wx.SYS_COLOUR_MENUBAR)
@@ -1444,6 +1445,7 @@ class MarkersPanel(wx.Panel):
         self.navigation = navigation
         self.tracker = tracker
         self.icp = icp
+        self.efield = efield
         if has_mTMS:
             self.mTMS = mTMS()
         else:
@@ -1459,7 +1461,6 @@ class MarkersPanel(wx.Panel):
 
         self.markers = []
         self.nav_status = False
-        self.efield_loaded = False
         self.efield_data_saved = False
         self.efield_target_idx = None
         self.target_mode = False
@@ -1572,7 +1573,7 @@ class MarkersPanel(wx.Panel):
         Publisher.subscribe(self.AddPeeledSurface, 'Update peel')
         Publisher.subscribe(self.GetEfieldDataStatus, 'Get status of Efield saved data')
         Publisher.subscribe(self.GetIdList, 'Get ID list')
-        Publisher.subscribe(self.GetRotationPosition, 'Send coil position and rotation')
+
     def SaveState(self):
         state = [marker.to_dict() for marker in self.markers]
 
@@ -1846,27 +1847,23 @@ class MarkersPanel(wx.Panel):
         list_index = self.marker_list_ctrl.GetFocusedItem()
         position = self.markers[list_index].position
         orientation = np.radians(self.markers[list_index].orientation)
-        Publisher.sendMessage('Calculate position and rotation', position=position, orientation=orientation)
+        [T_rot, cp, m_img_offline ]=self.efield.GetCoilPosition(position, orientation)
         coord = [position, orientation]
         coord = np.array(coord).flatten()
 
         #Check here, it resets the radious list
-        Publisher.sendMessage('Update interseccion offline', m_img =self.m_img_offline, coord = coord)
+        Publisher.sendMessage('Update interseccion offline', m_img =m_img_offline, coord = coord)
 
         if session.GetConfig('debug_efield'):
             enorm = self.navigation.debug_efield_enorm
         else:
-            enorm = self.navigation.neuronavigation_api.update_efield_vectorROI(position=self.cp,
+            enorm = self.navigation.neuronavigation_api.update_efield_vectorROI(position=cp,
                                                                       orientation=orientation,
-                                                                      T_rot=self.T_rot,
+                                                                      T_rot=T_rot,
                                                                       id_list=self.ID_list)
-        enorm_data = [self.T_rot, self.cp, coord, enorm, self.ID_list]
+        enorm_data = [T_rot, cp, coord, enorm, self.ID_list]
         Publisher.sendMessage('Get enorm', enorm_data = enorm_data , plot_vector = True)
 
-    def GetRotationPosition(self, T_rot, cp, m_img):
-        self.T_rot = T_rot
-        self.cp = cp
-        self.m_img_offline = m_img
 
     def GetIdList(self, ID_list):
         self.ID_list = ID_list
@@ -2726,7 +2723,7 @@ class TractographyPanel(wx.Panel):
         Publisher.sendMessage('Remove tracts')
 
 class E_fieldPanel(wx.Panel):
-    def __init__(self, parent, navigation):
+    def __init__(self, parent, navigation, efield):
         wx.Panel.__init__(self, parent)
         try:
             default_colour = wx.SystemSettings.GetColour(wx.SYS_COLOUR_MENUBAR)
@@ -2746,6 +2743,7 @@ class E_fieldPanel(wx.Panel):
         self.co = None
         self.sleep_nav = const.SLEEP_NAVIGATION
         self.navigation = navigation
+        self.efield = efield
         self.session = ses.Session()
         #  Check box to enable e-field visualization
         enable_efield = wx.CheckBox(self, -1, _('Enable E-field'))
@@ -2867,7 +2865,7 @@ class E_fieldPanel(wx.Panel):
                     self.e_field_loaded = False
                     return
             self.e_field_brain = brain.E_field_brain(self.e_field_mesh)
-            Publisher.sendMessage('Initialize E-field brain', e_field_brain=self.e_field_brain)
+            Publisher.sendMessage('Initialize E-field brain', e_field_brain=self.e_field_brain, efield = self.efield)
 
             Publisher.sendMessage('Initialize color array')
             self.e_field_loaded = True
@@ -2879,7 +2877,6 @@ class E_fieldPanel(wx.Panel):
             self.e_field_loaded = False
             #self.combo_surface_name.Enable(True)
         self.navigation.e_field_loaded = self.e_field_loaded
-        E_field = e_field()
 
     def OnEnablePlotVectors(self, evt, ctrl):
         self.plot_efield_vectors = ctrl.GetValue()

@@ -5,13 +5,33 @@ import time
 import numpy as np
 from vtkmodules.vtkCommonCore import (
     vtkIdList)
+from invesalius.utils import Singleton
 
 
-class E_field(metaclass=Singleton):
-    def __init__(self, neuronavigation_api, efield_data_saved, plot_efield_vectors):
-        self.neuronavigation_api = neuronavigation_api
-        self.efield_data_saved = efield_data_saved
-        self.plot_efield_vectors = plot_efield_vectors
+class Efield(metaclass=Singleton):
+
+    def __init__(self):
+        self.target_radius_list = []
+        pass
+
+    def GetCoilPosition(self, position, orientation):
+        import invesalius.data.transformations as tr
+        m_img = tr.compose_matrix(angles=orientation, translate=position)
+        m_img_flip = m_img.copy()
+        m_img_flip[1, -1] = -m_img_flip[1, -1]
+        cp = m_img_flip[:-1, -1]  # coil center
+        cp = cp * 0.001  # convert to meters
+        cp = cp.tolist()
+
+        ct1 = m_img_flip[:3, 1]  # is from posterior to anterior direction of the coil
+        ct2 = m_img_flip[:3, 0]  # is from left to right direction of the coil
+        coil_dir = m_img_flip[:-1, 0]
+        coil_face = m_img_flip[:-1, 1]
+        cn = np.cross(coil_dir, coil_face)
+        T_rot = np.append(ct1, ct2, axis=0)
+        T_rot = np.append(T_rot, cn, axis=0) * 0.001  # append and convert to meters
+        T_rot = T_rot.tolist()  # to list
+        return T_rot, cp, m_img
 
 
 def Get_coil_position(m_img):

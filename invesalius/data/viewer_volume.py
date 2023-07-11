@@ -412,7 +412,6 @@ class Viewer(wx.Panel):
         # Related to robot tracking during neuronavigation
         Publisher.subscribe(self.ActivateRobotMode, 'Robot navigation mode')
         Publisher.subscribe(self.OnUpdateRobotStatus, 'Update robot status')
-        Publisher.subscribe(self.GetCoilPosition, 'Calculate position and rotation')
 
     def SaveState(self):
         object_path = self.obj_name.decode(const.FS_ENCODE) if self.obj_name is not None else None
@@ -1702,17 +1701,17 @@ class Viewer(wx.Panel):
             enorms_list = list(self.e_field_norms)
             if plot_efield_vectors:
                 e_field_vectors =[list(self.e_field_col1), list(self.e_field_col2), list(self.e_field_col3)]
-                self.target_radius_list.append([target_list_index, self.Id_list, enorms_list, self.Idmax, position, orientation, self.coil_position_Trot, e_field_vectors])
+                self.efield.target_radius_list.append([target_list_index, self.Id_list, enorms_list, self.Idmax, position, orientation, self.coil_position_Trot, e_field_vectors])
             else:
-                self.target_radius_list.append([target_list_index, self.Id_list, enorms_list, self.Idmax, position, orientation, self.coil_position_Trot])
+                self.efield.target_radius_list.append([target_list_index, self.Id_list, enorms_list, self.Idmax, position, orientation, self.coil_position_Trot])
 
     def GetTargetSavedEfieldData(self, target_index_list):
-        if len(self.target_radius_list)>0:
+        if len(self.efield.target_radius_list)>0:
             target_index = 0
-            for i in range(len(self.target_radius_list)):
-                if target_index_list == self.target_radius_list[i][0]:
+            for i in range(len(self.efield.target_radius_list)):
+                if target_index_list == self.efield.target_radius_list[i][0]:
                     target_index= i
-                    self.saved_target_data = self.target_radius_list[target_index]
+                    self.saved_target_data = self.efield.target_radius_list[target_index]
                     break
 
         #location_previous_max = self.saved_target_data[3]
@@ -1720,10 +1719,10 @@ class Viewer(wx.Panel):
 
     def CheckStatusSavedEfieldData(self):
         indexes_saved_list = []
-        if len(self.target_radius_list)>0:
+        if len(self.efield.target_radius_list)>0:
             efield_data_loaded= True
-            for i in range(len(self.target_radius_list)):
-                indexes_saved_list.append(self.target_radius_list[i][0])
+            for i in range(len(self.efield.target_radius_list)):
+                indexes_saved_list.append(self.efield.target_radius_list[i][0])
             indexes_saved_list= np.array(indexes_saved_list)
         else:
             efield_data_loaded = False
@@ -1777,7 +1776,7 @@ class Viewer(wx.Panel):
                 cell_ids_array.append(pts1.GetId(j))
         return cell_ids_array
 
-    def InitEfield(self, e_field_brain):
+    def InitEfield(self, e_field_brain, efield):
         self.e_field_mesh_normals =e_field_brain.e_field_mesh_normals
         self.e_field_mesh_centers = e_field_brain.e_field_mesh_centers
         self.locator_efield = e_field_brain.locator_efield
@@ -1797,7 +1796,7 @@ class Viewer(wx.Panel):
         self.coil_position = None
         self.coil_position_Trot = None
         self.e_field_norms = None
-        self.target_radius_list=[]
+        self.efield= efield
         self.max_efield_vector = self.CreateActorArrow(direction=[0., 0., 0.], orientation=[0., 0., 0.], colour=[0, 0.0, 1.0],
                                                        size=15)
         self.vectorfield_actor =[]
@@ -1885,24 +1884,6 @@ class Viewer(wx.Panel):
         Publisher.sendMessage('Get ID list', ID_list = id_list)
         self.plot_no_connection = True
 
-    def GetCoilPosition(self, position, orientation):
-        m_img = tr.compose_matrix(angles=orientation, translate=position)
-        m_img_flip = m_img.copy()
-        m_img_flip[1, -1] = -m_img_flip[1, -1]
-        cp = m_img_flip[:-1, -1]  # coil center
-        cp = cp * 0.001  # convert to meters
-        cp = cp.tolist()
-
-        ct1 = m_img_flip[:3, 1]  # is from posterior to anterior direction of the coil
-        ct2 = m_img_flip[:3, 0]  # is from left to right direction of the coil
-        coil_dir = m_img_flip[:-1, 0]
-        coil_face = m_img_flip[:-1, 1]
-        cn = np.cross(coil_dir, coil_face)
-        T_rot = np.append(ct1, ct2, axis=0)
-        T_rot = np.append(T_rot, cn, axis=0) * 0.001  # append and convert to meters
-        T_rot = T_rot.tolist()  # to list
-        Publisher.sendMessage('Send coil position and rotation', T_rot=T_rot, cp=cp, m_img=m_img)
-
 
     def GetEnorm(self, enorm_data, plot_vector):
         session = ses.Session()
@@ -1959,7 +1940,7 @@ class Viewer(wx.Panel):
         import invesalius.data.imagedata_utils as imagedata_utils
         import csv
         header = ['target index', 'norm cell indexes', 'enorm', 'ID cell Max', 'position', 'orientation', 'Trot', 'efield vectors']
-        all_data = list(self.target_radius_list)
+        all_data = list(self.efield.target_radius_list)
         with open(filename, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(header)
