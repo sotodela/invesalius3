@@ -1461,7 +1461,6 @@ class MarkersPanel(wx.Panel):
 
         self.markers = []
         self.nav_status = False
-        self.efield_data_saved = False
         self.efield_target_idx = None
         self.target_mode = False
 
@@ -1571,8 +1570,6 @@ class MarkersPanel(wx.Panel):
         Publisher.subscribe(self.UpdateMarkerOrientation, 'Open marker orientation dialog')
         Publisher.subscribe(self.OnActivateTargetMode, 'Target navigation mode')
         Publisher.subscribe(self.AddPeeledSurface, 'Update peel')
-        Publisher.subscribe(self.GetEfieldDataStatus, 'Get status of Efield saved data')
-        Publisher.subscribe(self.GetIdList, 'Get ID list')
 
     def SaveState(self):
         state = [marker.to_dict() for marker in self.markers]
@@ -1761,16 +1758,14 @@ class MarkersPanel(wx.Panel):
             menu_id.Bind(wx.EVT_MENU, self.OnSendBrainTarget, send_brain_target_menu)
 
         if self.nav_status and self.navigation.e_field_loaded:
-            #Publisher.sendMessage('Check efield data')
-            #if not tuple(np.argwhere(self.indexes_saved_lists == self.marker_list_ctrl.GetFocusedItem())):
             if self.__find_target_marker()  == self.marker_list_ctrl.GetFocusedItem():
                 efield_menu = menu_id.Append(8, _('Save Efield target Data'))
                 menu_id.Bind(wx.EVT_MENU, self.OnMenuSaveEfieldTargetData, efield_menu)
 
         if self.navigation.e_field_loaded:
-            Publisher.sendMessage('Check efield data')
-            if self.efield_data_saved:
-                if tuple(np.argwhere(self.indexes_saved_lists==self.marker_list_ctrl.GetFocusedItem())):
+            if len(self.efield.target_radius_list)>0:
+                self.efield.CheckStatusSavedEfieldData()
+                if tuple(np.argwhere(self.efield.indexes_saved_list==self.marker_list_ctrl.GetFocusedItem())):
                     if self.efield_target_idx  == self.marker_list_ctrl.GetFocusedItem():
                         efield_target_menu  = menu_id.Append(9, _('Remove Efield target'))
                         menu_id.Bind(wx.EVT_MENU, self.OnMenuRemoveEfieldTarget, efield_target_menu )
@@ -1837,11 +1832,6 @@ class MarkersPanel(wx.Panel):
 
         self.SaveState()
 
-    def GetEfieldDataStatus(self, efield_data_loaded, indexes_saved_list):
-        self.indexes_saved_lists= []
-        self.efield_data_saved = efield_data_loaded
-        self.indexes_saved_lists = indexes_saved_list
-
     def OnMenuShowVectorField(self, evt):
         session = ses.Session()
         list_index = self.marker_list_ctrl.GetFocusedItem()
@@ -1860,13 +1850,9 @@ class MarkersPanel(wx.Panel):
             enorm = self.navigation.neuronavigation_api.update_efield_vectorROI(position=cp,
                                                                       orientation=orientation,
                                                                       T_rot=T_rot,
-                                                                      id_list=self.ID_list)
-        enorm_data = [T_rot, cp, coord, enorm, self.ID_list]
+                                                                      id_list=self.efield.id_list)
+        enorm_data = [T_rot, cp, coord, enorm, self.efield.id_list]
         Publisher.sendMessage('Get enorm', enorm_data = enorm_data , plot_vector = True)
-
-
-    def GetIdList(self, ID_list):
-        self.ID_list = ID_list
 
     def OnMenuSetEfieldTarget(self,evt):
         idx = self.marker_list_ctrl.GetFocusedItem()
@@ -2822,7 +2808,6 @@ class E_fieldPanel(wx.Panel):
         Publisher.subscribe(self.OnGetEfieldPaths, 'Get Efield paths')
         Publisher.subscribe(self.OnGetMultilocusCoils,'Get multilocus paths from json')
         Publisher.subscribe(self.SendNeuronavigationApi, 'Send Neuronavigation Api')
-        Publisher.subscribe(self.GetEfieldDataStatus, 'Get status of Efield saved data')
 
     def OnAddConfig(self, evt):
         filename = dlg.LoadConfigEfield()
@@ -2963,8 +2948,7 @@ class E_fieldPanel(wx.Panel):
         Publisher.sendMessage('Save Efield data', filename = filename, plot_efield_vectors= plot_efield_vectors)
 
     def OnSaveAllDataEfield(self, evt):
-        Publisher.sendMessage('Check efield data')
-        if self.efield_data_saved:
+        if len(self.efield.target_radius_list)>0:
             import invesalius.project as prj
             proj = prj.Project()
             timestamp = time.localtime(time.time())
@@ -2993,9 +2977,6 @@ class E_fieldPanel(wx.Panel):
 
     def SendNeuronavigationApi(self):
         Publisher.sendMessage('Get Neuronavigation Api', neuronavigation_api = self.navigation.neuronavigation_api)
-
-    def GetEfieldDataStatus(self, efield_data_loaded, indexes_saved_list):
-        self.efield_data_saved = efield_data_loaded
 
 class SessionPanel(wx.Panel):
     def __init__(self, parent):

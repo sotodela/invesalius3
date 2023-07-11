@@ -404,7 +404,6 @@ class Viewer(wx.Panel):
         Publisher.subscribe(self.SavedAllEfieldData, 'Save all Efield data')
         Publisher.subscribe(self.SaveEfieldTargetData, 'Save target data')
         Publisher.subscribe(self.GetTargetSavedEfieldData, 'Get target index efield')
-        Publisher.subscribe(self.CheckStatusSavedEfieldData, 'Check efield data')
         Publisher.subscribe(self.GetNeuronavigationApi, 'Get Neuronavigation Api')
         Publisher.subscribe(self.UpdateEfieldPointLocationOffline,'Update interseccion offline')
         Publisher.subscribe(self.MaxEfieldActor, 'Show max Efield actor')
@@ -1684,26 +1683,26 @@ class Viewer(wx.Panel):
         
     def EfieldVectors(self):
         self.vectorfield_actor = []
-        for i in range(self.radius_list.GetNumberOfIds()):
+        for i in range(len(self.efield.id_list)):
             #direction = np.array([self.e_field_col1[self.radius_list.GetId(i)], self.e_field_col2[self.radius_list.GetId(i)], self.e_field_col3[self.radius_list.GetId(i)]])
             direction = np.array([self.e_field_col1[i], self.e_field_col2[i], self.e_field_col3[i]])
             direction /= np.linalg.norm(direction)
             pitch = np.degrees(np.arcsin(direction[2]))
             yaw = np.degrees(np.arctan2(direction[1], direction[0]))
-            point = self.efield_mesh.GetPoint(self.radius_list.GetId(i))
+            point = self.efield_mesh.GetPoint(self.efield.id_list[i])
             actor = self.CreateActorArrow(direction=point, orientation=[pitch,yaw,0.], colour=[1.0, 0.0, 1.0], size = 5)
             self.vectorfield_actor.append(actor)
         for actor in self.vectorfield_actor:
             self.ren.AddActor(actor)
 
     def SaveEfieldTargetData(self, target_list_index, position, orientation, plot_efield_vectors):
-        if len(self.Id_list)>0:
+        if len(self.efield.id_list)>0:
             enorms_list = list(self.e_field_norms)
             if plot_efield_vectors:
                 e_field_vectors =[list(self.e_field_col1), list(self.e_field_col2), list(self.e_field_col3)]
-                self.efield.target_radius_list.append([target_list_index, self.Id_list, enorms_list, self.Idmax, position, orientation, self.coil_position_Trot, e_field_vectors])
+                self.efield.target_radius_list.append([target_list_index, self.efield.id_list, enorms_list, self.Idmax, position, orientation, self.coil_position_Trot, e_field_vectors])
             else:
-                self.efield.target_radius_list.append([target_list_index, self.Id_list, enorms_list, self.Idmax, position, orientation, self.coil_position_Trot])
+                self.efield.target_radius_list.append([target_list_index, self.efield.id_list, enorms_list, self.Idmax, position, orientation, self.coil_position_Trot])
 
     def GetTargetSavedEfieldData(self, target_index_list):
         if len(self.efield.target_radius_list)>0:
@@ -1713,20 +1712,8 @@ class Viewer(wx.Panel):
                     target_index= i
                     self.saved_target_data = self.efield.target_radius_list[target_index]
                     break
-
         #location_previous_max = self.saved_target_data[3]
         #saved_efield_data = self.saved_target_data[2]
-
-    def CheckStatusSavedEfieldData(self):
-        indexes_saved_list = []
-        if len(self.efield.target_radius_list)>0:
-            efield_data_loaded= True
-            for i in range(len(self.efield.target_radius_list)):
-                indexes_saved_list.append(self.efield.target_radius_list[i][0])
-            indexes_saved_list= np.array(indexes_saved_list)
-        else:
-            efield_data_loaded = False
-        Publisher.sendMessage('Get status of Efield saved data', efield_data_loaded=efield_data_loaded, indexes_saved_list= indexes_saved_list )
 
     def InitializeColorArray(self):
         self.colors_init.SetNumberOfComponents(3)
@@ -1829,13 +1816,13 @@ class Viewer(wx.Panel):
             self.radius_list.Reset()
 
     def OnUpdateEfieldvis(self):
-        if len(self.Id_list) !=0:
+        if len(self.efield.id_list) !=0:
             self.efield_lut = self.CreateLUTTableForEfield(self.min, self.max)
             self.colors_init.SetNumberOfComponents(3)
             self.colors_init.Fill(255)
-            for h in range(len(self.Id_list)):
+            for h in range(len(self.efield.id_list)):
                  dcolor = 3 * [0.0]
-                 index_id = self.Id_list[h]
+                 index_id = self.efield.id_list[h]
                  if self.plot_vector:
                     self.efield_lut.GetColor(self.e_field_norms[h], dcolor)
                  else:
@@ -1881,9 +1868,8 @@ class Viewer(wx.Panel):
         id_list = []
         for h in range(self.radius_list.GetNumberOfIds()):
             id_list.append(self.radius_list.GetId(h))
-        Publisher.sendMessage('Get ID list', ID_list = id_list)
+        self.efield.id_list = id_list
         self.plot_no_connection = True
-
 
     def GetEnorm(self, enorm_data, plot_vector):
         session = ses.Session()
@@ -1891,20 +1877,20 @@ class Viewer(wx.Panel):
         self.coil_position_Trot = enorm_data[0]
         self.coil_position = enorm_data[1]
         self.efield_coords = enorm_data[2]
-        self.Id_list = enorm_data[4]
+        self.efield.id_list = enorm_data[4]
         if self.plot_vector:
             if session.GetConfig('debug_efield'):
                 self.e_field_norms = enorm_data[3][:,0]
                 self.e_field_col1 = enorm_data[3][:,1]
                 self.e_field_col2 = enorm_data[3][:,2]
                 self.e_field_col3 = enorm_data[3][:,3]
-                self.Idmax = np.array(self.Id_list[np.array(self.e_field_norms[self.Id_list]).argmax()])
+                self.Idmax = np.array(self.efield.id_list[np.array(self.e_field_norms[self.efield.id_list]).argmax()])
             else:
                 self.e_field_norms = enorm_data[3].enorm
                 self.e_field_col1 = enorm_data[3].column1
                 self.e_field_col2 = enorm_data[3].column2
                 self.e_field_col3 = enorm_data[3].column3
-                self.Idmax = np.array(self.Id_list[np.array(self.e_field_norms).argmax()])
+                self.Idmax = np.array(self.efield.id_list[np.array(self.e_field_norms).argmax()])
         else:
             self.e_field_norms = enorm_data[3]
             self.Idmax = np.array(self.e_field_norms).argmax()

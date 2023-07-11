@@ -12,6 +12,8 @@ class Efield(metaclass=Singleton):
 
     def __init__(self):
         self.target_radius_list = []
+        self.indexes_saved_list = []
+        self.id_list = []
         pass
 
     def GetCoilPosition(self, position, orientation):
@@ -33,6 +35,12 @@ class Efield(metaclass=Singleton):
         T_rot = T_rot.tolist()  # to list
         return T_rot, cp, m_img
 
+    def CheckStatusSavedEfieldData(self):
+        indexes_saved_list = []
+        if len(self.target_radius_list) > 0:
+            for i in range(len(self.target_radius_list)):
+                indexes_saved_list.append(self.target_radius_list[i][0])
+            self.indexes_saved_list = np.array(indexes_saved_list)
 
 def Get_coil_position(m_img):
     # coil position cp : the center point at the bottom of the coil casing,
