@@ -1778,7 +1778,8 @@ class MarkersPanel(wx.Panel):
             if self.__find_target_marker() == self.marker_list_ctrl.GetFocusedItem():
                 efield_vector_plot_menu = menu_id.Append(10,_('Show vector field'))
                 menu_id.Bind(wx.EVT_MENU, self.OnMenuShowVectorField, efield_vector_plot_menu)
-
+                efield_dense_ROI_menu = menu_id.Append(11,_('Send to dense ROI'))
+                menu_id.Bind(wx.EVT_MENU, self.ONMenuSendDenseROI, efield_dense_ROI_menu)
 
         menu_id.AppendSeparator()
 
@@ -1859,6 +1860,35 @@ class MarkersPanel(wx.Panel):
                                                                       id_list=self.ID_list)
         enorm_data = [self.T_rot, self.cp, coord, enorm, self.ID_list]
         Publisher.sendMessage('Get enorm', enorm_data = enorm_data , plot_vector = True)
+
+    def ONMenuSendDenseROI(self,evt):
+        from invesalius.data.brainmesh_handler import E_field_brain
+        print(E_field_brain.instance.path_meshes)
+        cortex_model_path = E_field_brain.instance.cortex_file.split('.stl')
+        cortex_model_path = cortex_model_path[0] + '_dense.stl'
+        session = ses.Session()
+        list_index = self.marker_list_ctrl.GetFocusedItem()
+        position = self.markers[list_index].position
+        orientation = np.radians(self.markers[list_index].orientation)
+        Publisher.sendMessage('Calculate position and rotation', position=position, orientation=orientation)
+        coord = [position, orientation]
+        coord = np.array(coord).flatten()
+
+        # Check here, it resets the radious list
+        Publisher.sendMessage('Update interseccion offline', m_img=self.m_img_offline, coord=coord)
+        print(self.ID_list)
+        if session.GetConfig('debug_efield'):
+            enorm = self.navigation.debug_efield_enorm
+        else:
+            enorm = self.navigation.neuronavigation_api.ROI_dense_mesh(cortex_model_path=cortex_model_path ,
+                                                                       conductivities_inside = E_field_brain.instance.ci,
+                                                                       conductivities_outside= E_field_brain.instance.co,
+                                                                       position=self.cp,
+                                                                       orientation=orientation,
+                                                                       T_rot=self.T_rot,
+                                                                       id_list=self.ID_list)
+        enorm_data = [self.T_rot, self.cp, coord, enorm, self.ID_list]
+        Publisher.sendMessage('Get enorm', enorm_data=enorm_data, plot_vector=False)
 
     def GetRotationPosition(self, T_rot, cp, m_img):
         self.T_rot = T_rot

@@ -185,6 +185,18 @@ class NeuronavigationApi(metaclass=Singleton):
             )
         return None
 
+    def ROI_dense_mesh(self,cortex_model_path, conductivities_inside, conductivities_outside, position, orientation, id_list, T_rot):
+        if self.connection is not None:
+            return self.connection.ROI_dense_mesh(
+                cortex_model_path=cortex_model_path,
+                conductivities_inside=conductivities_inside,
+                conductivities_outside=conductivities_outside,
+                position=position,
+                orientation=orientation,
+                id_list=id_list,
+                T_rot=T_rot,
+            )
+
     def update_efield_vectorROIMax(self, position, orientation, T_rot, id_list):
         if self.connection is not None:
             return self.connection.update_efield_vectorROIMax(
