@@ -93,8 +93,8 @@ class Visualize_E_field_Thread(threading.Thread):
                                 elapsed_time = time.process_time() - t
                                 elapsed_time_per = time.perf_counter() - t1
                                 elapsed_time_timeit = timeit.default_timer() - t2
-                                print("efield: ", elapsed_time)
-                                print('efield performace counter: ', elapsed_time_per)
+                                print("efield process time: ", elapsed_time)
+                                print('efield performance counter: ', elapsed_time_per)
                                 print('efield time it: ', elapsed_time_timeit)
                             try:
                                 self.e_field_norms_queue.put_nowait(([T_rot, cp, coord, enorm, id_list]))

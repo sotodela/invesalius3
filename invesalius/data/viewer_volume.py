@@ -2088,9 +2088,9 @@ class Viewer(wx.Panel):
             elapsed_time = time.process_time() - t
             elapsed_time_per = time.perf_counter() - t1
             elapsed_time_timeit = timeit.default_timer() - t2
-            print("efield_updateVisEfield: ", elapsed_time)
-            print('efield performace counter updateVisEfield: ', elapsed_time_per)
-            print('efield time it updateVisEfield: ', elapsed_time_timeit)
+            print('Update Vis process time: ', elapsed_time)
+            print('Update Vis performance counter: ', elapsed_time_per)
+            print('Update Vis time it: ', elapsed_time_timeit)
         else:
             wx.CallAfter(Publisher.sendMessage,'Recolor again')
 
@@ -2179,9 +2179,9 @@ class Viewer(wx.Panel):
         elapsed_time = time.process_time() - t
         elapsed_time_per = time.perf_counter() - t1
         elapsed_time_timeit = timeit.default_timer() - t2
-        print("efield Get Enorm: ", elapsed_time)
-        print('efield performace counter Get enorm: ', elapsed_time_per)
-        print('efield time it Get enorm: ', elapsed_time_timeit)
+        print("Get Enorm process time: ", elapsed_time)
+        print('Get Enorm performance counter: ', elapsed_time_per)
+        print('Get Enorm time it: ', elapsed_time_timeit)
 
     def SaveEfieldData(self, filename, plot_efield_vectors):
         import invesalius.data.imagedata_utils as imagedata_utils
