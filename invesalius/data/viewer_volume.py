@@ -26,6 +26,8 @@ import sys
 import numpy as np
 import wx
 import queue
+import time
+import timeit
 # TODO: Check that these imports are not used -- vtkLookupTable, vtkMinimalStandardRandomSequence, vtkPoints, vtkUnsignedCharArray
 from vtkmodules.vtkCommonComputationalGeometry import vtkParametricTorus
 from vtkmodules.vtkCommonCore import (
@@ -120,6 +122,7 @@ import invesalius.utils as utils
 
 from invesalius import inv_paths
 from invesalius.math_utils import inner1d
+
 
 if sys.platform == 'win32':
     try:
@@ -2553,6 +2556,11 @@ class Viewer(wx.Panel):
             self.radius_list.Reset()
 
     def OnUpdateEfieldvis(self):
+
+        if len(self.Id_list) != 0:
+            t = time.process_time()
+            t1 = time.perf_counter()
+            t2 = timeit.default_timer()
         if self.radius_list.GetNumberOfIds() !=0:
             self.efield_lut = self.CreateLUTTableForEfield(self.efield_min, self.efield_max)
             self.CalculateEdgesEfield()
@@ -2587,6 +2595,13 @@ class Viewer(wx.Panel):
                     wx.CallAfter(Publisher.sendMessage,'Show Efield vectors')
                     self.plot_vector= False
                     self.plot_no_connection = False
+            elapsed_time = time.process_time() - t
+            elapsed_time_per = time.perf_counter() - t1
+            elapsed_time_timeit = timeit.default_timer() - t2
+            print('Update Vis process time: ', elapsed_time)
+            print('Update Vis performance counter: ', elapsed_time_per)
+            print('Update Vis time it: ', elapsed_time_timeit)
+
         else:
             wx.CallAfter(Publisher.sendMessage,'Recolor again')
 
@@ -2638,6 +2653,10 @@ class Viewer(wx.Panel):
 
 
     def GetEnorm(self, enorm_data, plot_vector):
+        import time
+        t = time.process_time()
+        t1 = time.perf_counter()
+        t2 = timeit.default_timer()
         self.e_field_col1=[]
         self.e_field_col2=[]
         self.e_field_col3=[]
@@ -2699,6 +2718,12 @@ class Viewer(wx.Panel):
         #self.Idmax = np.array(self.e_field_norms).argmax()
             #wx.CallAfter(Publisher.sendMessage, 'Update efield vis')
         self.GetEfieldMaxMin(self.e_field_norms)
+        elapsed_time = time.process_time() - t
+        elapsed_time_per = time.perf_counter() - t1
+        elapsed_time_timeit = timeit.default_timer() - t2
+        print("Get Enorm process time: ", elapsed_time)
+        print('Get Enorm performance counter: ', elapsed_time_per)
+        print('Get Enorm time it: ', elapsed_time_timeit)
 
     def SaveEfieldData(self, filename, plot_efield_vectors, marker_id):
         import invesalius.data.imagedata_utils as imagedata_utils

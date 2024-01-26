@@ -1,7 +1,7 @@
 import queue
 import threading
 import time
-
+import timeit
 import numpy as np
 from vtkmodules.vtkCommonCore import (
     vtkIdList)
@@ -74,7 +74,11 @@ class Visualize_E_field_Thread(threading.Thread):
                         self.efield_queue.task_done()
 
                     if self.ID_list.GetNumberOfIds() != 0:
-                        if np.all(self.coord_old != coord):
+                        t = time.process_time()
+                        t1 = time.perf_counter()
+                        t2 = timeit.default_timer()
+
+                    if np.all(self.coord_old != coord):
                             [T_rot, cp] = Get_coil_position(m_img)
                             if self.debug:
                                 enorm = self.enorm_debug
@@ -87,6 +91,14 @@ class Visualize_E_field_Thread(threading.Thread):
                                                                                              )
                                 else:
                                     enorm = self.neuronavigation_api.update_efield(position=cp, orientation=coord[3:], T_rot=T_rot)
+                                    elapsed_time = time.process_time() - t
+                                    elapsed_time_per = time.perf_counter() - t1
+                                    elapsed_time_timeit = timeit.default_timer() - t2
+                                    print("efield process time: ", elapsed_time)
+                                    print('efield performance counter: ',
+                                                        elapsed_time_per)
+                                    print('efield time it: ', elapsed_time_timeit)
+
                             try:
                                 self.e_field_norms_queue.put_nowait(([T_rot, cp, coord, enorm, id_list]))
 

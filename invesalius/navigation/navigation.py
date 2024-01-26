@@ -20,6 +20,8 @@
 import threading
 import queue
 from time import sleep
+import time
+import timeit
 
 import wx
 import numpy as np
@@ -128,7 +130,19 @@ class UpdateNavigationScene(threading.Thread):
                     if not self.e_field_norms_queue.empty():
                         try:
                             enorm_data = self.e_field_norms_queue.get_nowait()
+                            t = time.process_time()
+                            t1 = time.perf_counter()
+                            t2 = timeit.default_timer()
+
                             wx.CallAfter(Publisher.sendMessage, 'Get enorm', enorm_data=enorm_data, plot_vector = self.plot_efield_vectors)
+                            elapsed_time = time.process_time() - t
+                            elapsed_time_per = time.perf_counter() - t1
+                            elapsed_time_timeit = timeit.default_timer() - t2
+
+                            print('Navigation process time: ', elapsed_time)
+                            print('Navigation performance counter: ', elapsed_time_per)
+                            print('Navigation time it: ', elapsed_time_timeit)
+
                         finally:
                             self.e_field_norms_queue.task_done()
 
