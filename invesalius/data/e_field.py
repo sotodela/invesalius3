@@ -91,13 +91,13 @@ class Visualize_E_field_Thread(threading.Thread):
                                                                                              )
                                 else:
                                     enorm = self.neuronavigation_api.update_efield(position=cp, orientation=coord[3:], T_rot=T_rot)
-                                    elapsed_time = time.process_time() - t
-                                    elapsed_time_per = time.perf_counter() - t1
-                                    elapsed_time_timeit = timeit.default_timer() - t2
-                                    print("efield process time: ", elapsed_time)
-                                    print('efield performance counter: ',
+                                elapsed_time = time.process_time() - t
+                                elapsed_time_per = time.perf_counter() - t1
+                                elapsed_time_timeit = timeit.default_timer() - t2
+                                print("efield process time: ", elapsed_time)
+                                print('efield performance counter: ',
                                                         elapsed_time_per)
-                                    print('efield time it: ', elapsed_time_timeit)
+                                print('efield time it: ', elapsed_time_timeit)
 
                             try:
                                 self.e_field_norms_queue.put_nowait(([T_rot, cp, coord, enorm, id_list]))
