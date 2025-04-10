@@ -1649,7 +1649,7 @@ class Viewer(wx.Panel):
                     ],
                 )
                 efield_coords_position = [list(position_world), list(orientation_world)]
-            enorms_list = list(self.e_field_norms)
+            enorms_list = list(self.e_field_norms_to_save)
             if plot_efield_vectors:
                 e_field_vectors = list(self.max_efield_array)
                 self.target_radius_list.append(
@@ -2061,6 +2061,7 @@ class Viewer(wx.Panel):
         self.coil_position = None
         self.coil_position_Trot = None
         self.e_field_norms = None
+        self.e_field_norms_to_save = None
         self.efield_threshold = const.EFIELD_MAX_RANGE_SCALE
         self.efield_ROISize = const.EFIELD_ROI_SIZE
         self.target_radius_list = []
@@ -2225,6 +2226,7 @@ class Viewer(wx.Panel):
                     self.e_field_col3[max],
                 ]
             else:
+                self.e_field_norms_to_save = enorm_data[3].enorm
                 self.e_field_norms = enorm_data[3].enorm
                 self.e_field_norms =[self.e_field_norms[i] for i in self.Id_list]
                 self.e_field_col1 = enorm_data[3].column1
@@ -2330,7 +2332,7 @@ class Viewer(wx.Panel):
                     self.coil_position,
                     efield_coords_position,
                     self.efield_coords,
-                    list(self.e_field_norms),
+                    list(self.e_field_norms_to_save),
                     self.Idmax,
                     e_field_vectors,
                     self.Id_list,
@@ -2350,7 +2352,7 @@ class Viewer(wx.Panel):
                     self.coil_position,
                     efield_coords_position,
                     self.efield_coords,
-                    list(self.e_field_norms),
+                    list(self.e_field_norms_to_save),
                 ]
             )
 
