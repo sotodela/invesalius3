@@ -37,7 +37,7 @@ class Preferences(wx.Dialog):
 
         self.book = wx.Notebook(self, -1)
 
-        self.have_log_tab = 1
+        self.have_log_tab = 0
 
         self.visualization_tab = VisualizationTab(self.book)
         self.language_tab = LanguageTab(self.book)
@@ -163,7 +163,11 @@ class VisualizationTab(wx.Panel):
         self.number_colors = 4
         self.cluster_volume = None
 
-        self.conf = dict(self.session.GetConfig("mep_configuration"))
+        self.conf = self.session.GetConfig("mep_configuration")
+        try:
+            self.conf = dict(self.conf)
+        except TypeError:
+            self.conf = {}
         self.conf["mep_colormap"] = self.conf.get("mep_colormap", "Viridis")
 
         bsizer = wx.StaticBoxSizer(wx.VERTICAL, self, _("3D Visualization"))
@@ -1579,7 +1583,7 @@ class TrackerTab(wx.Panel):
 
         # ComboBox for spatial tracker device selection
         tooltip = _("Choose or type the robot IP")
-        robot_ip_options = [_("Select robot IP:")] + const.ROBOT_ElFIN_IP + const.ROBOT_DOBOT_IP
+        robot_ip_options = [_("Select robot IP:")] + const.ROBOT_IPS
         choice_IP = wx.ComboBox(
             self, -1, "", choices=robot_ip_options, style=wx.CB_DROPDOWN | wx.TE_PROCESS_ENTER
         )
