@@ -971,11 +971,11 @@ class Viewer(wx.Panel):
             arrow_pitch_x2,
         )
 
-        for ind in self.guide_coil_actors:
-            self.target_guide_renderer.AddActor(ind)
+        #for ind in self.guide_coil_actors:
+            #self.target_guide_renderer.AddActor(ind)
 
-        for ind in self.guide_arrow_actors:
-            self.target_guide_renderer.AddActor(ind)
+        #for ind in self.guide_arrow_actors:
+            #self.target_guide_renderer.AddActor(ind)
 
     def EnableTargetMode(self):
         # Store the current camera settings so that they can be restored when the target mode is disabled.
@@ -1242,8 +1242,8 @@ class Viewer(wx.Panel):
                 arrow_pitch_y2,
             )
 
-            for ind in self.guide_arrow_actors:
-                self.target_guide_renderer.AddActor(ind)
+            #for ind in self.guide_arrow_actors:
+                #self.target_guide_renderer.AddActor(ind)
 
     def OnUnsetTarget(self, marker):
         self.DisableTargetMode()
@@ -1438,8 +1438,8 @@ class Viewer(wx.Panel):
         if flag and actor:
             self.ren.AddActor(actor)
             self.actor_peel = actor
-            self.ren.AddActor(self.object_orientation_torus_actor)
-            self.ren.AddActor(self.obj_projection_arrow_actor)
+            #self.ren.AddActor(self.object_orientation_torus_actor)
+            #self.ren.AddActor(self.obj_projection_arrow_actor)
 
         if not self.nav_status:
             self.UpdateRender()
@@ -1873,7 +1873,7 @@ class Viewer(wx.Panel):
         self.edge_actor.GetProperty().SetLineWidth(3.0)
         actor.GetProperty().SetOpacity(0)
         self.ren.AddViewProp(actor)
-        self.ren.AddViewProp(self.edge_actor)
+        #self.ren.AddViewProp(self.edge_actor)
 
         self.efield_scalar_bar.SetLookupTable(self.efield_lut)
         self.ren.AddActor2D(self.efield_scalar_bar)
@@ -2441,8 +2441,8 @@ class Viewer(wx.Panel):
                     angle = np.rad2deg(np.arccos(np.dot(pointnormal, coil_norm)))
                     # print('the angle:', angle)
 
-                    self.ren.AddActor(self.obj_projection_arrow_actor)
-                    self.ren.AddActor(self.object_orientation_torus_actor)
+                    #self.ren.AddActor(self.obj_projection_arrow_actor)
+                    #self.ren.AddActor(self.object_orientation_torus_actor)
                     self.obj_projection_arrow_actor.SetPosition(closestPoint)
                     self.obj_projection_arrow_actor.SetOrientation(coil_dir)
 

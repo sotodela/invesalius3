@@ -255,7 +255,7 @@ class CoilVisualizer:
         )
 
         self.renderer.AddActor(coil_actor)
-        self.renderer.AddActor(coil_center_actor)
+        #self.renderer.AddActor(coil_center_actor)
 
         self.coils[coil_name] = {}
         self.coils[coil_name]["actor"] = coil_actor
