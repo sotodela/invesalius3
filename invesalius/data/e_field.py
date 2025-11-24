@@ -88,19 +88,31 @@ class Visualize_E_field_Thread(threading.Thread):
                                 enorm = self.enorm_debug
                             else:
                                 if self.plot_vectors:
-                                    enorm = self.neuronavigation_api.update_efield_vectorROIMax(
+                                    payload = self.neuronavigation_api.update_efield_vectorROIMax(
                                         position=cp,
                                         orientation=coord[3:],
                                         T_rot=T_rot,
                                         id_list=id_list,
                                     )
+                                    if payload is None:
+                                        print("E-field API returned None.")
+                                        return
+                                    
+                                    # New format: [seq, efield_data]
+                                    if isinstance(payload, (list, tuple)) and len(payload) == 2:
+                                        seq, enorm = payload
+                                    else:
+                                        # Old format: only efield_data
+                                        seq = None
+                                        enorm = payload
+                                        print("E-field API returned old format (no seq).")
                                 else:
                                     enorm = self.neuronavigation_api.update_efield(
                                         position=cp, orientation=coord[3:], T_rot=T_rot
                                     )
                             try:
                                 self.e_field_norms_queue.put_nowait(
-                                    [T_rot, cp, coord, enorm, id_list]
+                                    [T_rot, cp, coord, enorm, id_list, seq]
                                 )
 
                             except queue.Full:

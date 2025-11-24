@@ -229,7 +229,7 @@ class UpdateNavigationScene(threading.Thread):
                             enorm_data = self.e_field_norms_queue.get_nowait()
                             wx.CallAfter(
                                 Publisher.sendMessage,
-                                "Get enorm",
+                                "Get enorm",                                
                                 enorm_data=enorm_data,
                                 plot_vector=self.plot_efield_vectors,
                             )

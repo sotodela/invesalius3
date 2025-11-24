@@ -106,6 +106,7 @@ from invesalius.gui.widgets.canvas_renderer import CanvasRendererCTX
 from invesalius.i18n import tr as _
 from invesalius.math_utils import inner1d
 from invesalius.pubsub import pub as Publisher
+from invesalius.logger import init_logger, now_ns, log_csv
 
 if sys.platform == "win32":
     try:
@@ -2066,6 +2067,7 @@ class Viewer(wx.Panel):
         self.scalp_actor = scalp_actor
 
     def InitEfield(self, e_field_brain):
+        init_logger('Efied_viewer', base_dir=r"C:\Users\mtms\Projects\ana\timings")
         self.e_field_mesh_normals = e_field_brain.e_field_mesh_normals
         self.e_field_mesh_centers = e_field_brain.e_field_mesh_centers
         self.locator_efield = e_field_brain.locator_efield
@@ -2093,7 +2095,7 @@ class Viewer(wx.Panel):
         self.distance_efield = None
         self.mtms_coord = []
         self.diperdt = None
-
+        self.seq = 0
         if self.max_efield_vector and self.ball_max_vector is not None:
             self.ren.RemoveActor(self.max_efield_vector)
             self.ren.RemoveActor(self.ball_max_vector)
@@ -2178,6 +2180,8 @@ class Viewer(wx.Panel):
                     wx.CallAfter(Publisher.sendMessage, "Show Efield vectors")
                     self.plot_vector = False
                     self.plot_no_connection = False
+            if self.seq is not None:        
+                log_csv(self.seq, "T_vis_done")
         else:
             wx.CallAfter(Publisher.sendMessage, "Recolor again")
 
@@ -2236,7 +2240,8 @@ class Viewer(wx.Panel):
         self.coil_position_Trot = enorm_data[0]
         self.coil_position = enorm_data[1]
         self.efield_coords = enorm_data[2]
-        self.Id_list = enorm_data[4]
+        self.Id_list = enorm_data[4]       
+        self.seq = enorm_data[5]
         if self.plot_vector:
             if session.GetConfig("debug_efield"):
                 self.e_field_norms = enorm_data[3][self.Id_list, 0]
