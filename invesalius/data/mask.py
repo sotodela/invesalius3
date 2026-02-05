@@ -31,9 +31,9 @@ from scipy import ndimage
 import invesalius.constants as const
 import invesalius.data.converters as converters
 import invesalius.session as ses
-import invesalius_rs as floodfill
 from invesalius.data.volume_mask import VolumeMask
 from invesalius.pubsub import pub as Publisher
+from invesalius_cy import floodfill
 
 
 class EditionHistoryNode:
@@ -485,8 +485,7 @@ class Mask:
             bstruct = ndimage.generate_binary_structure(3, CON3D[conn])
 
             imask = ~(matrix > 127)
-            labels, nlabels = ndimage.label(imask, bstruct, output=np.uint32)
-            labels = np.asarray(labels, dtype=np.uint32, order="C")
+            labels, nlabels = ndimage.label(imask, bstruct, output=np.uint16)
 
             if nlabels == 0:
                 return
@@ -507,8 +506,7 @@ class Mask:
             cp_mask = matrix.copy()
 
             imask = ~(matrix > 127)
-            labels, nlabels = ndimage.label(imask, bstruct, output=np.uint32)
-            labels = np.asarray(labels, dtype=np.uint32, order="C")
+            labels, nlabels = ndimage.label(imask, bstruct, output=np.uint16)
 
             if nlabels == 0:
                 return
