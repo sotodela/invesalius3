@@ -18,7 +18,7 @@
 # --------------------------------------------------------------------------
 
 
-from typing import TYPE_CHECKING, Literal, Tuple, List
+from typing import TYPE_CHECKING, List, Literal, Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -37,7 +37,7 @@ import invesalius.session as ses
 from invesalius.data.polygon_select import PolygonSelectCanvas
 from invesalius.pubsub import pub as Publisher
 from invesalius.utils import vtkarray_to_numpy
-from invesalius_cy.mask_cut import mask_cut
+from invesalius_rs import mask_cut
 
 PROP_MEASURE = 0.8
 
@@ -126,6 +126,7 @@ class DefaultInteractorStyle(Base3DInteractorStyle):
         self.AddObserver("MouseWheelBackwardEvent", self.OnScrollBackward)
 
         self.AddObserver("MouseMoveEvent", self.OnMouseMove)
+        self.AddObserver("MiddleButtonReleaseEvent", self.OnMiddleRelease)
 
         # Set camera focus using left double-click.
         self.viewer.interactor.Bind(wx.EVT_LEFT_DCLICK, self.SetCameraFocus)
@@ -141,6 +142,9 @@ class DefaultInteractorStyle(Base3DInteractorStyle):
     def OnNavigationStatus(self, nav_status, vis_status):
         self.nav_status = nav_status
 
+    def OnMiddleRelease(self, evt, obj):
+        evt.EndPan()
+
     def OnMouseMove(self, evt, obj):
         if self.left_pressed:
             evt.Rotate()
@@ -155,10 +159,10 @@ class DefaultInteractorStyle(Base3DInteractorStyle):
             evt.OnMiddleButtonDown()
 
     def OnRightClick(self, evt, obj):
-        self.viewer.interactor.InvokeEvent("StartSpinEvent")
+        evt.StartSpin()
 
     def OnRightRelease(self, evt, obj):
-        self.viewer.interactor.InvokeEvent("EndSpinEvent")
+        evt.EndSpin()
 
     def OnLeftClick(self, evt, obj):
         evt.StartRotate()
@@ -895,23 +899,17 @@ class Mask3DEditorInteractorStyle(DefaultInteractorStyle):
             np.logical_not(filter, out=filter)
 
         _mat = self.mask_data[1:, 1:, 1:].copy()
-        true_indices = np.where(_mat)
-
-        # Get coordinates of True voxels only
-        true_x_coords = true_indices[2].astype(np.int32)  # x coordinates
-        true_y_coords = true_indices[1].astype(np.int32)  # y coordinates
-        true_z_coords = true_indices[0].astype(np.int32)  # z coordinates
+        out = _mat.copy()
 
         slice = slc.Slice()
         sx, sy, sz = slice.spacing
+
+        print(f"\n\n\n\n{self.world_to_screen.flags=}\n{self.world_to_camera_coordinates.flags=}\n")
 
         near, far = self.clipping_range
         depth = near + (far - near) * self.depth_val
         mask_cut(
             _mat,
-            true_x_coords,
-            true_y_coords,
-            true_z_coords,
             sx,
             sy,
             sz,
@@ -919,17 +917,19 @@ class Mask3DEditorInteractorStyle(DefaultInteractorStyle):
             filter,
             self.world_to_screen,
             self.world_to_camera_coordinates,
-            _mat,
+            out,
         )
-        self.update_views(_mat)
+        self.update_views(out)
 
     def update_views(self, _mat: npt.NDArray):
         """Update the views with the given mask data."""
         slice = slc.Slice()
         _cur_mask = slice.current_mask
-        _cur_mask.matrix[1:, 1:, 1:] = _mat
-        _cur_mask.was_edited = True
-        _cur_mask.modified(all_volume=True)
+        if _cur_mask is not None:
+            _cur_mask.matrix[:] = 1
+            _cur_mask.matrix[1:, 1:, 1:] = _mat
+            _cur_mask.was_edited = True
+            _cur_mask.modified(all_volume=True)
 
         # Discard all buffers to reupdate view
         for ori in ["AXIAL", "CORONAL", "SAGITAL"]:
