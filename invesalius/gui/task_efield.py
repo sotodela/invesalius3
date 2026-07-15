@@ -51,6 +51,8 @@ import wx.lib.masked.numctrl
 
 import invesalius.constants as const
 import invesalius.data.brainmesh_handler as brain
+import invesalius.data.imagedata_utils as imagedata_utils
+from invesalius.data.e_field import Get_coil_position
 import invesalius.gui.dialogs as dlg
 import invesalius.session as ses
 from invesalius.i18n import tr as _
@@ -377,6 +379,7 @@ class InnerTaskPanel(wx.Panel):
         Publisher.subscribe(self.SendNeuronavigationApi, "Send Neuronavigation Api")
         Publisher.subscribe(self.GetEfieldDataStatus, "Get status of Efield saved data")
         Publisher.subscribe(self.GetIds, "Get dI for mtms")
+        Publisher.subscribe(self.OnRequestEfieldsForTargeting, "Request Efields for targeting")
 
     def OnAddConfig(self, evt):
         filename = dlg.LoadConfigEfield()
@@ -693,6 +696,57 @@ class InnerTaskPanel(wx.Panel):
             )
             self.navigation.MarkEfieldParametersChanged()
             self.Send_dI_per_dt_to_report(dIperdt, self.ci, self.co)
+
+    def OnRequestEfieldsForTargeting(self, targeting_request):
+        dIperdt = self.GetUnitdIPerdt()
+        self.navigation.neuronavigation_api.set_dIperdt(dIperdt=dIperdt)
+        self.navigation.MarkEfieldParametersChanged()
+        self.Send_dI_per_dt_to_report(dIperdt, self.ci, self.co)
+
+        coil_positions = targeting_request.get("coil_positions", [])
+        target_region = targeting_request.get("target_region", {})
+        roi_ids = target_region.get("indices") or target_region.get("cell_ids") or []
+        roi_ids = [int(value) for value in roi_ids]
+        if not roi_ids:
+            Publisher.sendMessage(
+                "Efields for targeting ready",
+                targeting_request=targeting_request,
+                efields=[],
+                dIperdt=dIperdt,
+            )
+            return
+        efields = []
+
+        for coil_position in coil_positions:
+            coords = list(coil_position["position"]) + list(coil_position["orientation"])
+            T_rot, cp = Get_coil_position(coords)
+            _position_world, orientation_world = imagedata_utils.convert_invesalius_to_world(
+                position=coords[:3],
+                orientation=coords[3:],
+            )
+            efield = self.navigation.neuronavigation_api.update_efield_vectorROI(
+                position=cp,
+                orientation=orientation_world,
+                T_rot=T_rot,
+                id_list=roi_ids,
+            )
+            efields.append(
+                {
+                    "coil_position": coil_position,
+                    "position": cp,
+                    "orientation": list(orientation_world),
+                    "T_rot": T_rot,
+                    "efield": efield,
+                    "roi_indices": list(roi_ids),
+                }
+            )
+
+        Publisher.sendMessage(
+            "Efields for targeting ready",
+            targeting_request=targeting_request,
+            efields=efields,
+            dIperdt=dIperdt,
+        )
 
     def GetIds(self, dIs):
         self.SenddI(dIs)

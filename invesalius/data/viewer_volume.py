@@ -74,6 +74,7 @@ from vtkmodules.vtkIOImage import (
 from vtkmodules.vtkRenderingAnnotation import vtkAnnotatedCubeActor, vtkAxesActor
 from vtkmodules.vtkRenderingCore import (
     vtkActor,
+    vtkCellPicker,
     vtkAssembly,
     vtkCompositePolyDataMapper,
     vtkPointPicker,
@@ -347,6 +348,7 @@ class Viewer(wx.Panel):
         self.old_coord = np.zeros((6,), dtype=float)
 
         self.efield_mesh = None
+        self.efield_actor = None
         self.max_efield_vector = None
         self.ball_max_vector = None
         self.ball_GoGEfieldVector = None
@@ -368,6 +370,12 @@ class Viewer(wx.Panel):
         self.save_automatically = False
         self.positions_above_threshold = None
         self.cell_id_indexes_above_threshold = None
+        self.efield_targeting_area_enabled = False
+        self.efield_targeting_area_radius = const.EFIELD_ROI_SIZE
+        self.efield_targeting_area_ids = set()
+        self.efield_targeting_area_picker = vtkCellPicker()
+        self.efield_targeting_area_picker.SetTolerance(1e-3)
+        self.interactor.AddObserver("LeftButtonPressEvent", self.OnPickEfieldTargetingArea)
 
         # SSAO state tracking
         self.ssao_enabled = False
@@ -721,6 +729,7 @@ class Viewer(wx.Panel):
         Publisher.subscribe(self.ClearSaveEfieldData, "Clear saved efield data")
         Publisher.subscribe(self.GetTargetSavedEfieldData, "Get target index efield")
         Publisher.subscribe(self.CheckStatusSavedEfieldData, "Check efield data")
+        Publisher.subscribe(self.ShowTargetingEfieldResult, "Show targeting Efield result")
         Publisher.subscribe(self.GetNeuronavigationApi, "Get Neuronavigation Api")
         Publisher.subscribe(self.UpdateEfieldPointLocationOffline, "Update interseccion offline")
         Publisher.subscribe(self.MaxEfieldActor, "Show max Efield actor")
@@ -758,6 +767,12 @@ class Viewer(wx.Panel):
         Publisher.subscribe(self.Getdiperdtforreport, "Get diperdt used in efield calculation")
         Publisher.subscribe(self.UpdateTractSeedBasedEfield, "Update tract seed based efield")
         Publisher.subscribe(self.Get_meshes_paths_to_report, "Get path meshes")
+        Publisher.subscribe(
+            self.EnableEfieldTargetingAreaSelection, "Enable Efield targeting area selection"
+        )
+        Publisher.subscribe(self.ClearEfieldTargetingAreaSelection, "Clear Efield targeting area")
+        Publisher.subscribe(self.SendEfieldTargetingAreaSelection, "Get Efield targeting area")
+        Publisher.subscribe(self.SendWholeEfieldTargetingArea, "Get whole Efield targeting area")
 
         # SSAO related
         Publisher.subscribe(self._EnableSSAO, "Enable SSAO")
@@ -2192,6 +2207,8 @@ class Viewer(wx.Panel):
         self.e_field_norms = e_field_norms
         efield_max = np.amax(self.e_field_norms)
         efield_min = np.amin(self.e_field_norms)
+        if efield_max <= efield_min:
+            efield_max = efield_min + 1.0
         self.efield_min = efield_min
         self.efield_max = efield_max
         # self.Idmax = np.array(self.e_field_norms).argmax()
@@ -2435,6 +2452,121 @@ class Viewer(wx.Panel):
         for j, value in enumerate(cell_id_indexes):
             self.colors_init.InsertTuple(value, color)
 
+    def EnableEfieldTargetingAreaSelection(self, enable=True, radius=None):
+        self.efield_targeting_area_enabled = enable
+        if radius is not None:
+            self.efield_targeting_area_radius = radius
+        Publisher.sendMessage(
+            "Efield targeting area selection status",
+            enabled=enable,
+            available=self.efield_mesh is not None,
+            selected_ids=sorted(self.efield_targeting_area_ids),
+        )
+
+    def ClearEfieldTargetingAreaSelection(self):
+        self.efield_targeting_area_ids.clear()
+        if self.efield_mesh is not None:
+            self.InitializeColorArray()
+            self.efield_mesh.GetPointData().SetScalars(self.colors_init)
+            self.RecolorEfieldActor()
+            if not self.nav_status:
+                self.UpdateRender()
+        self.SendEfieldTargetingAreaSelection()
+
+    def SendEfieldTargetingAreaSelection(self):
+        Publisher.sendMessage(
+            "Efield targeting area selected",
+            selected_ids=sorted(self.efield_targeting_area_ids),
+        )
+
+    def SendWholeEfieldTargetingArea(self):
+        if self.efield_mesh is None:
+            Publisher.sendMessage(
+                "Efield targeting area selection status",
+                enabled=self.efield_targeting_area_enabled,
+                available=False,
+                selected_ids=[],
+            )
+            return
+
+        selected_ids = list(range(self.efield_mesh.GetNumberOfPoints()))
+        self.efield_targeting_area_ids = set(selected_ids)
+        Publisher.sendMessage(
+            "Efield targeting area selected",
+            selected_ids=selected_ids,
+        )
+
+    def OnPickEfieldTargetingArea(self, obj, evt):
+        if not self.efield_targeting_area_enabled:
+            return
+        if self.efield_mesh is None or self.efield_actor is None:
+            Publisher.sendMessage(
+                "Efield targeting area selection status",
+                enabled=True,
+                available=False,
+                selected_ids=sorted(self.efield_targeting_area_ids),
+            )
+            return
+
+        x, y = self.get_vtk_mouse_position()
+        picker = self.efield_targeting_area_picker
+        picker.InitializePickList()
+        picker.PickFromListOn()
+        picker.AddPickList(self.efield_actor)
+        picker.Pick(x, y, 0, self.ren)
+        picked_cell_id = picker.GetCellId()
+        picker.DeletePickList(self.efield_actor)
+
+        if picked_cell_id < 0:
+            return
+
+        point = self.e_field_mesh_centers.GetPoint(picked_cell_id)
+        normal = [0.0, 0.0, 1.0]
+        if self.e_field_mesh_normals is not None and picked_cell_id < self.e_field_mesh_normals.GetNumberOfTuples():
+            normal = self.e_field_mesh_normals.GetTuple(picked_cell_id)
+        Publisher.sendMessage(
+            "Efield targeting cortex point picked",
+            point_index=picked_cell_id,
+            position=list(point),
+            normal=list(normal),
+        )
+
+        selected_ids = self._GetEfieldIdsAroundCell(picked_cell_id)
+        if not selected_ids:
+            selected_ids = [picked_cell_id]
+
+        self.efield_targeting_area_ids.update(selected_ids)
+        self._UpdateEfieldTargetingAreaHighlight()
+        self.SendEfieldTargetingAreaSelection()
+
+    def _GetEfieldIdsAroundCell(self, cell_id):
+        if self.locator_efield is None or self.e_field_mesh_centers is None:
+            return []
+
+        ids = vtkIdList()
+        self.locator_efield.FindPointsWithinRadius(
+            float(self.efield_targeting_area_radius),
+            self.e_field_mesh_centers.GetPoint(cell_id),
+            ids,
+        )
+        return [ids.GetId(i) for i in range(ids.GetNumberOfIds())]
+
+    def _UpdateEfieldTargetingAreaHighlight(self):
+        if self.efield_mesh is None:
+            return
+        if self.colors_init.GetNumberOfTuples() == 0:
+            self.InitializeColorArray()
+
+        color = [0, 220, 190]
+        for selected_id in self.efield_targeting_area_ids:
+            if selected_id < self.colors_init.GetNumberOfTuples():
+                self.colors_init.InsertTuple(selected_id, color)
+
+        self.efield_mesh.GetPointData().SetScalars(self.colors_init)
+        self.RecolorEfieldActor()
+        if not self.nav_status:
+            self.UpdateRender()
+
     def GetEfieldActor(self, e_field_actor):
         self.efield_actor = e_field_actor
 
@@ -2575,6 +2707,8 @@ class Viewer(wx.Panel):
 
     def OnUpdateEfieldvis(self):
         if self.radius_list.GetNumberOfIds() != 0:
+            if self.efield_actor is not None:
+                self.efield_actor.SetVisibility(1)
             self.efield_lut = self.CreateLUTTableForEfield(
                 0, self.efield_max, highlight_threshold=self.enableefieldabovethreshold
             )
@@ -2612,6 +2746,8 @@ class Viewer(wx.Panel):
                 wx.CallAfter(Publisher.sendMessage, "Show Efield vectors")
                 self.plot_vector = False
                 self.plot_no_connection = False
+            if not self.nav_status:
+                self.UpdateRender()
         else:
             wx.CallAfter(Publisher.sendMessage, "Recolor again")
 
@@ -2805,6 +2941,80 @@ class Viewer(wx.Panel):
                     marker_id=self.list_index_efield_vectors,
                 )
         self.GetEfieldMaxMin(self.e_field_norms)
+
+    def ShowTargetingEfieldResult(self, efield_norms, id_list=None, label=None):
+        if self.efield_mesh is None:
+            Publisher.sendMessage(
+                "Targeting Efield display status",
+                message="Cannot display targeting result: E-field cortex mesh is not loaded",
+            )
+            return
+
+        values = np.asarray(efield_norms, dtype=float).reshape(-1)
+        if values.size == 0:
+            Publisher.sendMessage(
+                "Targeting Efield display status",
+                message="Cannot display targeting result: result E-field is empty",
+            )
+            return
+
+        n_points = self.efield_mesh.GetNumberOfPoints()
+        if id_list is None or len(id_list) == 0:
+            if values.size == n_points:
+                ids = list(range(n_points))
+            else:
+                ids = list(range(values.size))
+        else:
+            ids = [int(value) for value in id_list]
+
+        if values.size == n_points:
+            valid_pairs = [(point_id, float(values[point_id])) for point_id in ids if 0 <= point_id < n_points]
+            ids = [point_id for point_id, _value in valid_pairs]
+            display_values = [value for _point_id, value in valid_pairs]
+            self.e_field_norms_to_save = values.tolist()
+        elif values.size == len(ids):
+            valid_pairs = [
+                (point_id, float(value))
+                for point_id, value in zip(ids, values)
+                if 0 <= point_id < n_points
+            ]
+            ids = [point_id for point_id, _value in valid_pairs]
+            display_values = [value for _point_id, value in valid_pairs]
+            self.e_field_norms_to_save = values.tolist()
+        else:
+            Publisher.sendMessage(
+                "Targeting Efield display status",
+                message=(
+                    "Cannot display targeting result: "
+                    f"{values.size} E-field values for {len(ids)} ROI ids"
+                ),
+            )
+            return
+        if not ids:
+            Publisher.sendMessage(
+                "Targeting Efield display status",
+                message="Cannot display targeting result: ROI ids are outside the E-field mesh",
+            )
+            return
+
+        self.Id_list = ids
+        self.radius_list.Reset()
+        for point_id in ids:
+            self.radius_list.InsertNextId(point_id)
+        self.radius_list.Sort()
+
+        self.e_field_norms = display_values
+        max_index = int(np.argmax(display_values))
+        self.Idmax = ids[max_index]
+        self.efield_coords = None
+        self.coil_position = None
+        self.coil_position_Trot = None
+        self.GetEfieldMaxMin(self.e_field_norms)
+        self.OnUpdateEfieldvis()
+        Publisher.sendMessage(
+            "Targeting Efield display status",
+            message=f"Displayed targeting result on {len(ids)} cortex points",
+        )
 
     def SaveEfieldData(self, filename, plot_efield_vectors, marker_id):
         import csv
