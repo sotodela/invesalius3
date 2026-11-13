@@ -22,6 +22,7 @@ from enum import Enum
 import numpy as np
 import wx
 
+import invesalius.constants as const
 import invesalius.data.coregistration as dcr
 import invesalius.gui.dialogs as dlg
 import invesalius.session as ses
@@ -36,27 +37,28 @@ class RobotObjective(Enum):
     MOVE_AWAY_FROM_HEAD = 2
 
 
-# Only one robot will be initialized per time. Therefore, we use
-# Singleton design pattern for implementing it
-class Robot(metaclass=Singleton):
-    def __init__(self, tracker, navigation, icp):
+# The Robot class represents a single robot instance.
+class Robot:
+    def __init__(self, robot_id, tracker, navigation, icp, coil_name=None):
+        self.robot_id = robot_id
         self.tracker = tracker
         self.navigation = navigation
         self.icp = icp
         self.enabled_in_gui = False
 
-        self.coil_name = None
-
+        self.coil_name = coil_name
+        self.use_pressure_sensor = False
         self.is_robot_connected = False
         self.robot_ip = None
         self.robot_ip_options = []
         self.matrix_tracker_to_robot = None
         self.robot_coregistration_dialog = None
         self.target = None
-        self.robot_init_config = None
+        self.robot_init_config = {}
 
         self.objective = RobotObjective.NONE
         self.target = None
+        self.target_marker_id = None
 
         # If tracker already has fiducials set, send them to the robot; this can happen, e.g.,
         # when a pre-existing state is loaded at start-up.
@@ -66,9 +68,10 @@ class Robot(metaclass=Singleton):
         success = self.LoadConfig()
         if success:
             self.ConnectToRobot()
-            self.InitializeRobot()
 
         self.__bind_events()
+
+        Publisher.sendMessage("Neuronavigation to Robot: Request config", robot_id=self.robot_id)
 
     def __bind_events(self):
         Publisher.subscribe(
@@ -79,37 +82,56 @@ class Robot(metaclass=Singleton):
         )
         Publisher.subscribe(self.SetObjectiveByRobot, "Robot to Neuronavigation: Set objective")
         Publisher.subscribe(self.OnRobotInitialConfig, "Robot to Neuronavigation: Initial config")
-
         Publisher.subscribe(self.SetTarget, "Set target")
         Publisher.subscribe(self.UnsetTarget, "Unset target")
-
         Publisher.subscribe(self.TrackerFiducialsSet, "Tracker fiducials set")
+        Publisher.subscribe(
+            self.OnUpdateRobotWarning, "Robot to Neuronavigation: Update robot warning"
+        )
+        Publisher.subscribe(
+            self.OnUpdateRobotForceData, "Robot to Neuronavigation: Send force sensor data"
+        )
+        Publisher.subscribe(self.UpdateTargetInfo, "Coil at target")
 
     def SaveConfig(self, key=None, value=None):
         session = ses.Session()
+        config_key = f"robot_{self.robot_id}"
         if key is None or value is None:
             # Save the whole state
             state = {
                 "robot_ip": self.robot_ip,
                 "robot_ip_options": self.robot_ip_options,
-                "tracker_to_robot": self.matrix_tracker_to_robot.tolist(),
+                "tracker_to_robot": self.matrix_tracker_to_robot.tolist()
+                if self.matrix_tracker_to_robot is not None
+                else None,
+                "use_pressure_sensor": self.use_pressure_sensor,
             }
             if self.coil_name is not None:
                 state["robot_coil"] = self.coil_name
         else:
-            state = session.GetConfig("robot", {})
+            state = session.GetConfig(config_key, {})
             state[key] = value
 
-        session.SetConfig("robot", state)
+        session.SetConfig(config_key, state)
 
     def LoadConfig(self):
         session = ses.Session()
-        state = session.GetConfig("robot", {})
+        config_key = f"robot_{self.robot_id}"
+        state = session.GetConfig(config_key, {})
+
+        # Fallback to legacy "robot" config for the primary robot (id 0) to maintain backward compatibility
+        if not state and self.robot_id == 0:
+            state = session.GetConfig("robot", {})
 
         self.coil_name = state.get("robot_coil", None)
 
         self.robot_ip = state.get("robot_ip", None)
         self.robot_ip_options = state.get("robot_ip_options", [])
+
+        if not self.robot_ip_options:
+            self.robot_ip_options = list(const.ROBOT_IPS)
+
+        self.use_pressure_sensor = state.get("use_pressure_sensor", False)
 
         self.matrix_tracker_to_robot = state.get("tracker_to_robot", None)
         if self.matrix_tracker_to_robot is not None:
@@ -118,18 +140,36 @@ class Robot(metaclass=Singleton):
         success = self.robot_ip is not None and self.matrix_tracker_to_robot is not None
         return success
 
-    def OnRobotConnectionStatus(self, data):
-        # TODO: Is this check necessary?
-        if not data:
+    def OnRobotConnectionStatus(self, data, robot_id=None):
+        if robot_id is not None and robot_id != self.robot_id:
             return
-        if data == "Connected":
-            self.is_robot_connected = True
 
+        self.is_robot_connected = True if data == "Connected" else False
+
+        # Send to preference active robot connection status
+        Publisher.sendMessage("Update robot status connection", status=data, robot_id=self.robot_id)
+        Publisher.sendMessage(
+            "Enable robot", enabled=self.is_robot_connected, robot_id=self.robot_id
+        )
+
+        # If the robot is connected, we add the robot IP to the list of options if it's not already there, and request the robot-side config.
         if self.is_robot_connected:
-            Publisher.sendMessage("Enable move away button", enabled=True)
-            Publisher.sendMessage("Enable free drive button", enabled=True)
+            if self.robot_ip not in self.robot_ip_options and self.robot_ip is not None:
+                self.robot_ip_options.append(self.robot_ip)
+
+            print("Connected to robot")
+
+            # Ensure we fetch the robot-side config early so features like the force/pressure
+            # overlay can be initialized without requiring the Preferences dialog to be opened.
+            Publisher.sendMessage(
+                "Neuronavigation to Robot: Request config", robot_id=self.robot_id
+            )
+
+            # Send matrix and coil index once connected
+            if self.matrix_tracker_to_robot is not None:
+                self.InitializeRobot()
         else:
-            self.is_robot_connected = False
+            Publisher.sendMessage("Update option main coil", done=True)
 
     def RegisterRobot(self):
         Publisher.sendMessage("End busy cursor")
@@ -140,6 +180,11 @@ class Robot(metaclass=Singleton):
         if not self.tracker.tracker_connected:
             wx.MessageBox(_("Tracker is not connect."), _("InVesalius 3"))
             return
+
+        if not self.coil_name:
+            wx.MessageBox(_("Attach a coil to the robot before registering it."), _("InVesalius 3"))
+            return
+
         self.robot_coregistration_dialog = dlg.RobotCoregistrationDialog(
             robot=self, tracker=self.tracker
         )
@@ -159,53 +204,85 @@ class Robot(metaclass=Singleton):
         self.SaveConfig()
         self.InitializeRobot()
 
-    def AbortRobotConfiguration(self):
+    def AbortRobotConfiguration(self, robot_id=None):
+        if robot_id is not None and robot_id != self.robot_id:
+            return
+
         if self.robot_coregistration_dialog:
             self.robot_coregistration_dialog.Destroy()
 
     def IsConnected(self):
         return self.is_robot_connected
 
-    def IsReady(self):  # LUKATODO: use this check before enabling robot for navigation...
-        return self.IsConnected() and (self.coil_name in self.navigation.coil_registrations)
+    def IsReady(self):
+        return (
+            self.IsConnected()
+            and self.matrix_tracker_to_robot is not None
+            and self.coil_name in self.navigation.coil_registrations
+        )
 
     def SetRobotIP(self, data):
         if data is not None:
             self.robot_ip = data
 
-    def ConnectToRobot(self):
-        Publisher.sendMessage("Neuronavigation to Robot: Connect to robot", robot_IP=self.robot_ip)
-        pressure_setpoint = ses.Session().GetConfig("pressure_setpoint", 5.0)
+    def ConnectToRobot(self, ip=None):
+        if ip is not None:
+            self.SetRobotIP(ip)
+
+        if self.IsConnected():
+            self.is_robot_connected = False
+            Publisher.sendMessage(
+                "Enable robot", enabled=self.is_robot_connected, robot_id=self.robot_id
+            )
+
         Publisher.sendMessage(
-            "Neuronavigation to Robot: Pressure set point", pressure=pressure_setpoint
+            "Neuronavigation to Robot: Connect to robot",
+            robot_IP=self.robot_ip,
+            robot_id=self.robot_id,
         )
-        # Ensure we fetch the robot-side config early so features like the force/pressure
-        # overlay can be initialized without requiring the Preferences dialog to be opened.
-        Publisher.sendMessage("Neuronavigation to Robot: Request config")
-        print("Connected to robot")
 
     def InitializeRobot(self):
         Publisher.sendMessage(
             "Neuronavigation to Robot: Set robot transformation matrix",
             data=self.matrix_tracker_to_robot.tolist(),
+            robot_id=self.robot_id,
         )
+        self.SetCoilName(self.coil_name) if self.coil_name is not None else "default_coil"
+        Publisher.sendMessage("Robot transformation matrix set")
         print("Robot initialized")
+        # A target may have been selected before robot registration was available.
+        self.SendTargetToRobot()
 
     def GetCoilName(self):
         return self.coil_name
 
     def SetCoilName(self, name):
         self.coil_name = name
+
+        if self.coil_name not in self.navigation.coil_registrations:
+            return
+
+        coil_idx = self.navigation.coil_registrations[self.coil_name]["obj_id"]
+
+        Publisher.sendMessage(
+            "Neuronavigation to Robot: Set coil index",
+            coil_idx=coil_idx,
+            robot_id=self.robot_id,
+        )
         self.SaveConfig("robot_coil", name)
 
     def SendTargetToRobot(self):
+        if not self.IsReady():
+            return
+
         # If the target is not set, return early.
-        if self.target is None:
+        if self.target is None or self.navigation.main_coil != self.coil_name:
             return False
 
         navigation = self.navigation
-        # XXX: These are needed for computing the target in tracker coordinate system. Ensure that they are set.
-        if navigation.m_change is None or navigation.obj_datas is None:
+
+        # StartNavigation prepares the coil transformation before pending targets are sent.
+        if navigation.m_change is None or self.coil_name not in navigation.obj_datas:
             return False
 
         # Compute the target in tracker coordinate system.
@@ -232,12 +309,15 @@ class Robot(metaclass=Singleton):
         Publisher.sendMessage(
             "Neuronavigation to Robot: Set target",
             target=m_target.tolist(),
+            robot_id=self.robot_id,
         )
 
     def TrackerFiducialsSet(self):
         tracker_fiducials = self.tracker.GetMatrixTrackerFiducials()
         Publisher.sendMessage(
-            "Neuronavigation to Robot: Set tracker fiducials", tracker_fiducials=tracker_fiducials
+            "Neuronavigation to Robot: Set tracker fiducials",
+            tracker_fiducials=tracker_fiducials,
+            robot_id=self.robot_id,
         )
 
     def SetObjective(self, objective):
@@ -247,9 +327,23 @@ class Robot(metaclass=Singleton):
             return
 
         self.objective = objective
-        Publisher.sendMessage("Neuronavigation to Robot: Set objective", objective=objective.value)
+        Publisher.sendMessage(
+            "Neuronavigation to Robot: Set objective",
+            objective=objective.value,
+            robot_id=self.robot_id,
+        )
 
-    def SetObjectiveByRobot(self, objective):
+        if self.objective == RobotObjective.NONE:
+            Publisher.sendMessage(
+                "Robot to Neuronavigation: Update robot warning",
+                robot_warning="",
+                robot_id=self.robot_id,
+            )
+
+    def SetObjectiveByRobot(self, objective, robot_id=None):
+        if robot_id is not None and robot_id != self.robot_id:
+            return
+
         if objective is None:
             return
 
@@ -267,26 +361,52 @@ class Robot(metaclass=Singleton):
             Publisher.sendMessage("Press robot button", pressed=False)
             Publisher.sendMessage("Press move away button", pressed=False)
 
-    def OnRobotInitialConfig(self, config):
-        self.robot_init_config = config
+    def OnRobotInitialConfig(self, config, robot_id=None):
+        if robot_id is not None and robot_id != self.robot_id:
+            return
+
         if not config:
             return
 
-        # Make sure the Volume viewer force/pressure overlay is turned on/off based
-        # on the robot config, even if the GUI checkbox was never toggled.
-        enabled = bool(config.get("use_pressure_sensor", False))
-        Publisher.sendMessage("Set visibility robot force visualizer", visible=enabled)
+        self.robot_init_config = config
+        self.UpdatePressureActiveState(config.get("use_pressure_sensor", False))
 
-        # Some robot backends only start streaming feedback after an explicit update.
+    def UpdatePressureActiveState(self, active, notify_robot=False):
+        self.use_pressure_sensor = active
+        self.SaveConfig("use_pressure_sensor", self.use_pressure_sensor)
+
         Publisher.sendMessage(
-            "Neuronavigation to Robot: Update config", use_pressure_sensor=enabled
+            "Set visibility robot force visualizer", visible=active, coil_associated=self.coil_name
         )
+
+        if active:
+            pressure_setpoint = ses.Session().GetConfig("pressure_setpoint", 5.0)
+            Publisher.sendMessage(
+                "Neuronavigation to Robot: Pressure set point",
+                pressure=pressure_setpoint,
+                robot_id=self.robot_id,
+            )
+
+        if notify_robot:
+            Publisher.sendMessage(
+                "Neuronavigation to Robot: Update config",
+                use_pressure_sensor=self.use_pressure_sensor,
+                robot_id=self.robot_id,
+            )
 
     def UnsetTarget(self, marker):
         self.target = None
-        Publisher.sendMessage("Neuronavigation to Robot: Unset target")
+        self.target_marker_id = None
+        Publisher.sendMessage("Neuronavigation to Robot: Unset target", robot_id=self.robot_id)
 
     def SetTarget(self, marker):
+        # Set robot objective to NONE when a new target is selected. This prevents the robot from
+        # automatically moving to the new target (which would be the case if robot objective was previously
+        # set to TRACK_TARGET). Preventing the automatic moving makes robot movement more explicit and predictable.
+        if getattr(self, "target_marker_id", None) != marker.marker_uuid:
+            self.SetObjective(RobotObjective.NONE)
+            self.target_marker_id = marker.marker_uuid
+
         coord = marker.position + marker.orientation
 
         # TODO: The coordinate systems of slice viewers and volume viewer should be unified, so that this coordinate
@@ -297,4 +417,154 @@ class Robot(metaclass=Singleton):
         self.SendTargetToRobot()
 
     def SetPressureSetpoint(self, pressure):
-        Publisher.sendMessage("Neuronavigation to Robot: Pressure set point", pressure=pressure)
+        Publisher.sendMessage(
+            "Neuronavigation to Robot: Pressure set point",
+            pressure=pressure,
+            robot_id=self.robot_id,
+        )
+
+    def CheckConnection(self):
+        Publisher.sendMessage(
+            "Neuronavigation to Robot: Check connection robot", robot_id=self.robot_id
+        )
+
+    def SetFreeDrive(self, enabled):
+        Publisher.sendMessage(
+            "Neuronavigation to Robot: Set free drive", set=enabled, robot_id=self.robot_id
+        )
+
+    def ResetErrors(self):
+        if self.objective == RobotObjective.TRACK_TARGET:
+            self.SetObjective(RobotObjective.NONE)
+
+        Publisher.sendMessage(
+            "Neuronavigation to Robot: Reset errors",
+            robot_id=self.robot_id,
+        )
+
+    def UpdateTargetInfo(self, state, displacement, coil_name=None):
+        if coil_name is not None and coil_name != self.coil_name:
+            return
+
+        self.UpdateDisplacementToTarget(displacement)
+        self.SendStatusCoilAtTarget(state)
+
+    def UpdateDisplacementToTarget(self, displacement):
+        wx.CallAfter(
+            Publisher.sendMessage,
+            "Neuronavigation to Robot: Update displacement to target",
+            displacement=displacement,
+            robot_id=self.robot_id,
+        )
+
+    def SendStatusCoilAtTarget(self, coil_at_target):
+        wx.CallAfter(
+            Publisher.sendMessage,
+            "From Neuronavigation: Coil at target",
+            state=coil_at_target,
+            robot_id=self.robot_id,
+        )
+
+    def OnUpdateRobotWarning(self, robot_warning, robot_id=None):
+        if robot_id is not None and robot_id != self.robot_id:
+            return
+
+        wx.CallAfter(
+            Publisher.sendMessage,
+            "Update robot warning",
+            robot_warning=robot_warning,
+            coil_associated=self.coil_name,
+        )
+
+    def OnUpdateRobotForceData(self, force_feedback, robot_id=None):
+        if robot_id is not None and robot_id != self.robot_id:
+            return
+
+        wx.CallAfter(
+            Publisher.sendMessage,
+            "Send force sensor data",
+            force_data=force_feedback,
+            coil_associated=self.coil_name,
+        )
+
+
+class Robots(metaclass=Singleton):
+    """
+    Manager class for multiple Robot instances.
+    Maintains a mapping of robot_id to Robot and coil_name to Robot.
+    """
+
+    def __init__(self):
+        self.robots_by_id = {}
+        self.robots_by_coil = {}
+        self.n_robots_created = 0
+        self.main_coil_name = None
+
+        self.LoadConfig()
+
+    def __bind_events(self):
+        pass
+
+    def LoadConfig(self):
+        session = ses.Session()
+        state = session.GetConfig("navigation")
+        if state is not None:
+            self.main_coil_name = state.get("main_coil", None)
+
+    def AddRobot(self, tracker, navigation, icp, coil_name=None):
+        robot_id = self.n_robots_created
+        self.n_robots_created += 1
+
+        new_robot = Robot(robot_id, tracker, navigation, icp, coil_name)
+        self.robots_by_id[robot_id] = new_robot
+
+        active_coil_name = coil_name or new_robot.coil_name
+        if active_coil_name:
+            self.robots_by_coil[active_coil_name] = new_robot
+
+        self.SetMainCoil(navigation.main_coil)
+
+        wx.CallAfter(Publisher.sendMessage, "Robot added", robot=new_robot)
+
+        return new_robot
+
+    def AssignCoilToRobot(self, robot_id, coil_name):
+        robot = self.GetRobot(robot_id)
+        if not robot:
+            return
+
+        old_coil_name = robot.coil_name
+        if old_coil_name and old_coil_name in self.robots_by_coil:
+            del self.robots_by_coil[old_coil_name]
+
+        if coil_name:
+            self.robots_by_coil[coil_name] = robot
+
+        robot.SetCoilName(coil_name)
+        self.SetMainCoil(robot.navigation.main_coil)
+
+    def SetMainCoil(self, main_coil_name):
+        self.main_coil_name = main_coil_name
+        robot = self.GetActiveRobot()
+        if robot:
+            robot.SendTargetToRobot()
+
+    def GetActiveRobot(self):
+        if self.main_coil_name:
+            return self.robots_by_coil.get(self.main_coil_name)
+        return None
+
+    def GetRobot(self, robot_id):
+        return self.robots_by_id.get(robot_id)
+
+    def GetRobotForCoil(self, coil_name):
+        return self.robots_by_coil.get(coil_name)
+
+    def SetNoneObjectiveToAll(self):
+        for robot in self.robots_by_id.values():
+            if robot.objective != RobotObjective.NONE:
+                robot.SetObjective(RobotObjective.NONE)
+
+    def SendTargetToAll(self):
+        for robot in self.robots_by_id.values():
+            robot.SendTargetToRobot()

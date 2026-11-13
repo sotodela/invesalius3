@@ -384,6 +384,14 @@ class InnerFoldPanel(wx.Panel):
         fold_panel.AddFoldPanelWindow(item, wtw, spacing=0, leftSpacing=0, rightSpacing=0)
         self.__id_watershed = item.GetId()
 
+        # Fold 4 - Edition History
+        item = fold_panel.AddFoldPanel(_("Edition History"), collapsed=True)
+        htw = HistoryPanel(item)
+
+        fold_panel.ApplyCaptionStyle(item, style)
+        fold_panel.AddFoldPanelWindow(item, htw, spacing=0, leftSpacing=0, rightSpacing=0)
+        self.__id_history = item.GetId()
+
         sizer.Add(fold_panel, 1, wx.EXPAND)
 
         fold_panel.Expand(fold_panel.GetFoldPanel(2))
@@ -744,9 +752,9 @@ class MaskProperties(wx.Panel):
     def OnSlideChanging(self, evt):
         thresh_min = self.gradient.GetMinValue()
         thresh_max = self.gradient.GetMaxValue()
+        # Only a preview while dragging: OnSlideChanged applies the threshold and
+        # marks the project as changed when the slider is released.
         Publisher.sendMessage("Changing threshold values", threshold_range=(thresh_min, thresh_max))
-        session = ses.Session()
-        session.ChangeProject()
 
     def OnSelectColour(self, evt):
         colour = evt.GetValue()[:3]
@@ -849,7 +857,17 @@ class EditionTools(wx.Panel):
         combo_mask_edit_3d_op = wx.ComboBox(
             self, -1, "", choices=const.MASK_3D_EDIT_OP_NAME, style=wx.CB_DROPDOWN | wx.CB_READONLY
         )
-        combo_mask_edit_3d_op.SetSelection(const.MASK_3D_EDIT_INCLUDE)
+        combo_mask_edit_3d_op.SetSelection(const.MASK_3D_EDIT_EXCLUDE)
+
+        txt_edit_tool = wx.StaticText(self, -1, _("Tool:"))
+        combo_mask_edit_3d_tool = wx.ComboBox(
+            self,
+            -1,
+            "",
+            choices=const.MASK_3D_EDIT_TOOL_NAME,
+            style=wx.CB_DROPDOWN | wx.CB_READONLY,
+        )
+        combo_mask_edit_3d_tool.SetSelection(const.MASK_3D_EDIT_TOOL_POLYGON)
 
         txt_depth_value = wx.StaticText(self, -1, _("Depth:"))
         spin_mask_edit_3d_depth = wx.SpinCtrlDouble(self, value="1.0", min=0.0, max=1.0, inc=0.05)
@@ -859,12 +877,17 @@ class EditionTools(wx.Panel):
         line6.AddSpacer(1)
         line6.Add(combo_mask_edit_3d_op, 0, wx.ALIGN_CENTER_VERTICAL)
         line6.AddSpacer(15)
+        line6.Add(txt_edit_tool, 0, wx.ALIGN_CENTER_VERTICAL)
+        line6.AddSpacer(1)
+        line6.Add(combo_mask_edit_3d_tool, 0, wx.ALIGN_CENTER_VERTICAL)
+        line6.AddSpacer(15)
         line6.Add(txt_depth_value, 0, wx.ALIGN_CENTER_VERTICAL)
         line6.AddSpacer(1)
         line6.Add(spin_mask_edit_3d_depth, 0, wx.ALIGN_CENTER_VERTICAL)
 
         self.cbox_mask_edit_3d = cbox_mask_edit_3d
         self.combo_mask_edit_3d_op = combo_mask_edit_3d_op
+        self.combo_mask_edit_3d_tool = combo_mask_edit_3d_tool
         self.spin_mask_edit_3d_depth = spin_mask_edit_3d_depth
         self.btn_clear_3d_poly = btn_clear_3d_poly
 
@@ -900,6 +923,7 @@ class EditionTools(wx.Panel):
         self.combo_brush_op.Bind(wx.EVT_COMBOBOX, self.OnComboBrushOp)
         self.cbox_mask_edit_3d.Bind(wx.EVT_CHECKBOX, self.OnCheckboxMaskEdit3D)
         self.combo_mask_edit_3d_op.Bind(wx.EVT_COMBOBOX, self.OnComboMaskEdit3DMode)
+        self.combo_mask_edit_3d_tool.Bind(wx.EVT_COMBOBOX, self.OnComboMaskEdit3DTool)
         self.spin_mask_edit_3d_depth.Bind(wx.EVT_SPINCTRLDOUBLE, self.OnSpinDepthMaskEdit3D)
         self.btn_clear_3d_poly.Bind(wx.EVT_BUTTON, self.OnClearPolyMaskEdit3D)
 
@@ -911,6 +935,7 @@ class EditionTools(wx.Panel):
         Publisher.subscribe(self._set_threshold_range_gui, "Set edition threshold gui")
         Publisher.subscribe(self.ChangeMaskColour, "Set GUI items colour")
         Publisher.subscribe(self.OnAskMaskEdit3DMode, "M3E ask for edit mode")
+        Publisher.subscribe(self.OnAskMaskEdit3DTool, "M3E ask for tool mode")
         Publisher.subscribe(self.OnAskDepthMaskEdit3D, "M3E ask for depth value")
 
     def ChangeMaskColour(self, colour):
@@ -1029,6 +1054,14 @@ class EditionTools(wx.Panel):
     def OnAskMaskEdit3DMode(self):
         op_id = self.combo_mask_edit_3d_op.GetSelection()
         Publisher.sendMessage("M3E set edit mode", mode=op_id)
+
+    def OnComboMaskEdit3DTool(self, evt: wx.CommandEvent):
+        tool_id = evt.GetSelection()
+        Publisher.sendMessage("M3E set tool mode", tool=tool_id)
+
+    def OnAskMaskEdit3DTool(self):
+        tool_id = self.combo_mask_edit_3d_tool.GetSelection()
+        Publisher.sendMessage("M3E set tool mode", tool=tool_id)
 
     def OnSpinDepthMaskEdit3D(self, _evt):
         spin_val = self.spin_mask_edit_3d_depth.GetValue()
@@ -1265,3 +1298,90 @@ class WatershedTool(EditionTools):
 
     def OnExpandWatershed(self, evt):
         Publisher.sendMessage("Expand watershed to 3D AXIAL")
+
+
+class HistoryPanel(wx.Panel):
+    def __init__(self, parent):
+        wx.Panel.__init__(self, parent)
+        try:
+            default_colour = wx.SystemSettings.GetColour(wx.SYS_COLOUR_MENUBAR)
+        except AttributeError:
+            default_colour = wx.SystemSettings_GetColour(wx.SYS_COLOUR_MENUBAR)
+        self.SetBackgroundColour(default_colour)
+
+        # Buttons line: Undo and Redo
+        btn_undo = wx.Button(self, -1, _("Undo"), size=(70, -1))
+        btn_redo = wx.Button(self, -1, _("Redo"), size=(70, -1))
+        btn_undo.Enable(False)
+        btn_redo.Enable(False)
+
+        line_btns = wx.BoxSizer(wx.HORIZONTAL)
+        line_btns.Add(btn_undo, 1, wx.RIGHT, 5)
+        line_btns.Add(btn_redo, 1, wx.LEFT, 5)
+
+        # History List Box
+        lbl_history = wx.StaticText(self, -1, _("History Stack:"))
+        list_history = wx.ListBox(self, -1, choices=[], style=wx.LB_SINGLE)
+        list_history.SetMinSize((-1, 120))
+
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(line_btns, 0, wx.EXPAND | wx.ALL, 5)
+        sizer.Add(lbl_history, 0, wx.LEFT | wx.TOP, 5)
+        sizer.Add(list_history, 1, wx.EXPAND | wx.ALL, 5)
+
+        self.SetSizerAndFit(sizer)
+
+        self.btn_undo = btn_undo
+        self.btn_redo = btn_redo
+        self.list_history = list_history
+        self.history_items = []
+
+        btn_undo.Bind(wx.EVT_BUTTON, self.OnUndo)
+        btn_redo.Bind(wx.EVT_BUTTON, self.OnRedo)
+        list_history.Bind(wx.EVT_LISTBOX_DCLICK, self.OnJumpTo)
+        list_history.Bind(wx.EVT_LISTBOX, self.OnJumpTo)
+
+        Publisher.subscribe(self.OnUpdateHistoryStack, "Update history stack")
+        Publisher.subscribe(self.OnEnableUndo, "Enable undo")
+        Publisher.subscribe(self.OnEnableRedo, "Enable redo")
+
+    def OnEnableUndo(self, value):
+        self.btn_undo.Enable(value)
+
+    def OnEnableRedo(self, value):
+        self.btn_redo.Enable(value)
+
+    def OnUndo(self, evt):
+        Publisher.sendMessage("Undo edition")
+
+    def OnRedo(self, evt):
+        Publisher.sendMessage("Redo edition")
+
+    def OnUpdateHistoryStack(self, items, current_index):
+        self.history_items = items
+        self.list_history.Clear()
+
+        labels = ["0. Initial State"]
+        for idx, name in items:
+            labels.append(f"{idx + 1}. {name}")
+
+        self.list_history.Set(labels)
+
+        active_pos = current_index + 1
+        if 0 <= active_pos < len(labels):
+            self.list_history.SetSelection(active_pos)
+
+    def OnJumpTo(self, evt):
+        sel = self.list_history.GetSelection()
+        if sel != wx.NOT_FOUND:
+            target_index = sel - 1
+            cur_mask = slice_.Slice().current_mask
+            if cur_mask is not None:
+                buffer_slices = slice_.Slice().buffer_slices
+                actual_slices = {
+                    "AXIAL": buffer_slices["AXIAL"].index,
+                    "CORONAL": buffer_slices["CORONAL"].index,
+                    "SAGITAL": buffer_slices["SAGITAL"].index,
+                    "VOLUME": 0,
+                }
+                cur_mask.jump_to_history(target_index, actual_slices)

@@ -12,6 +12,7 @@ keywords = [
 dependencies = [
     "h5py==3.11.0",
     "imageio==2.34.2",
+    "lib3mf==2.3.2",
     "matplotlib==3.9.0",
     "nibabel==5.2.1",
     "numpy==1.26.4",
@@ -22,12 +23,12 @@ dependencies = [
     "pandas>=2.3.3",
     "pillow==10.3.0",
     "psutil==6.0.0",
-    "polhemus==0.0.3; sys_platform == 'win32'",
-    "polhemusFT==0.0.3; sys_platform == 'win32'",
+    "polhemus==0.0.4; sys_platform == 'win32'",
+    "polhemusFT==0.0.4; sys_platform == 'win32'",
     "pyacvd==0.2.11",
     "pyclaron ; python_full_version == '3.8.*' and sys_platform == 'win32'",
     "pypubsub==4.0.3",
-    "pypolaris==0.0.8; sys_platform == 'win32'",
+    "pypolaris==0.1.0",
     "pyserial==3.5",
     "python-gdcm~=3.0.24",
     "requests>=2.32.3",
@@ -38,6 +39,8 @@ dependencies = [
     "tinygrad==0.10.2",
     "torch>=2.3.1",
     "vtk==9.3.0",
+    "pynetdicom==2.0.2",
+    "pydicom==2.4.5",
     "wxpython==4.2.5",
 ]
 license = { file = "LICENSE.txt" }
@@ -189,6 +192,7 @@ module = [
     'sigar.*',
     'numpy.*',
     'invesalius_rs.*',
+    'lib3mf.*',
 ]
 ignore_missing_imports = true
 

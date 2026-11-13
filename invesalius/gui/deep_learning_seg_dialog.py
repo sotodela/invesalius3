@@ -13,9 +13,10 @@ from invesalius.gui import dialogs
 from invesalius.i18n import tr as _
 from invesalius.pubsub import pub as Publisher
 from invesalius.segmentation.deep_learning import segment
+from invesalius.segmentation.deep_learning.utils import get_torch_devices
 
 try:
-    import torch
+    import torch  # noqa: F401
 
     HAS_TORCH = True
 except ImportError:
@@ -29,13 +30,7 @@ except ImportError:
     HAS_TINYGRAD = False
 
 if HAS_TORCH:
-    TORCH_DEVICES = {}
-    if torch.cuda.is_available():
-        for i in range(torch.cuda.device_count()):
-            name = torch.cuda.get_device_name()
-            device_id = f"cuda:{i}"
-            TORCH_DEVICES[name] = device_id
-    TORCH_DEVICES["CPU"] = "cpu"
+    TORCH_DEVICES = get_torch_devices()
 
 if HAS_TINYGRAD:
     TINYGRAD_DEVICES = {}
@@ -373,6 +368,8 @@ class DeepLearningSegmenterDialog(wx.Dialog):
         self.btn_segment.Enable()
         self.chk_new_mask.Enable()
         self.elapsed_time_timer.Stop()
+        if self.auto_segment:
+            Publisher.sendMessage("Brain segmentation stopped")
 
     def OnBtnClose(self, evt):
         self.Close()
@@ -383,8 +380,10 @@ class DeepLearningSegmenterDialog(wx.Dialog):
         self.btn_stop.Disable()
         self.btn_segment.Disable()
         self.chk_new_mask.Disable()
-        self.sld_threshold.Disable()
-        self.txt_threshold.Disable()
+        # Keep threshold slider and text field enabled for post-inference adjustment
+        # Users can interactively adjust the threshold, and the mask will update in real-time
+        # self.sld_threshold.Disable()
+        # self.txt_threshold.Disable()
         self.cb_backends.Disable()
         self.cb_devices.Disable()
         self.overlap.Disable()
@@ -395,8 +394,9 @@ class DeepLearningSegmenterDialog(wx.Dialog):
         self.apply_segment_threshold()
 
         if self.auto_segment:
+            mask = self.ps.mask
             self.OnClose(self)
-            Publisher.sendMessage("Brain segmentation completed")
+            Publisher.sendMessage("Brain segmentation completed", mask=mask)
 
     def SetProgress(self, progress):
         if self.progress and self.progress.IsBeingDeleted() is False:
@@ -443,6 +443,8 @@ class DeepLearningSegmenterDialog(wx.Dialog):
             self.ps.terminate()
             self.ps = None
 
+        if self.auto_segment and not self.segmented:
+            Publisher.sendMessage("Brain segmentation stopped")
         self.Destroy()
 
     def HideProgress(self):
@@ -641,6 +643,10 @@ class SubpartSegmenterDialog(DeepLearningSegmenterDialog):
 
         for checkbox in self.mask_checkboxes.values():
             checkbox.Enable()
+
+        # Disable threshold slider for Brain Subpart - it uses label IDs, not thresholds
+        self.sld_threshold.Disable()
+        self.txt_threshold.Disable()
 
     def apply_segment_threshold(self):
         threshold = self.sld_threshold.GetValue() / 100.0

@@ -24,17 +24,16 @@ import invesalius.session as ses
 from invesalius.data.markers.grid_generator import GridGenerator
 from invesalius.data.markers.marker import Marker, MarkerType
 from invesalius.data.markers.marker_transformator import MarkerTransformator
-from invesalius.navigation.robot import Robot, RobotObjective
 from invesalius.pubsub import pub as Publisher
 from invesalius.utils import Singleton
 
 
 class MarkersControl(metaclass=Singleton):
-    def __init__(self, robot: Robot) -> None:
+    def __init__(self, navigation) -> None:
         self.list: List[Marker] = []
         self.nav_status = False
+        self.navigation = navigation
         self.transformator = MarkerTransformator()
-        self.robot = robot
 
     def SaveState(self) -> None:
         state = [marker.to_dict() for marker in self.list]
@@ -43,14 +42,21 @@ class MarkersControl(metaclass=Singleton):
         session.SetState("markers", state)
 
     def LoadState(self) -> None:
+        if self.list:
+            return
+
         session = ses.Session()
         state = session.GetState("markers")
 
         if state is None:
             return
 
+        loaded_uuids = set()
         for d in state:
             marker = Marker().from_dict(d)
+            if marker.marker_uuid and marker.marker_uuid in loaded_uuids:
+                continue
+            loaded_uuids.add(marker.marker_uuid)
             self.AddMarker(marker, render=False)
 
     def AddMarker(self, marker: Marker, render: bool = True, focus: bool = False) -> None:
@@ -125,24 +131,17 @@ class MarkersControl(metaclass=Singleton):
         self.SaveState()
 
     def SetTarget(self, marker_id: int, check_for_previous: bool = True) -> None:
-        # Set robot objective to NONE when a new target is selected. This prevents the robot from
-        # automatically moving to the new target (which would be the case if robot objective was previously
-        # set to TRACK_TARGET). Preventing the automatic moving makes robot movement more explicit and predictable.
-        self.robot.SetObjective(RobotObjective.NONE)
+        marker = self.list[marker_id]
+        previous_target = self.FindTarget()
 
-        if check_for_previous:
-            prev_target = self.FindTarget()
+        if check_for_previous and previous_target is marker:
+            return
 
-            # If the new target is same as the previous do nothing.
-            if prev_target and prev_target.marker_id == marker_id:
-                return
-
-            # Unset the previous target
-            if prev_target is not None:
-                self.UnsetTarget(prev_target.marker_id)
+        if check_for_previous and previous_target is not None and previous_target is not marker:
+            self.UnsetTarget(previous_target.marker_id)
 
         # Set new target
-        marker = self.list[marker_id]
+        self.navigation.SetTarget(marker)
         marker.is_target = True
 
         Publisher.sendMessage("Set target", marker=marker)
@@ -176,6 +175,7 @@ class MarkersControl(metaclass=Singleton):
 
     def UnsetTarget(self, marker_id: int) -> None:
         marker = self.list[marker_id]
+        self.navigation.UnsetTarget()
         marker.is_target = False
 
         Publisher.sendMessage("Set target transparency", marker=marker, transparent=False)

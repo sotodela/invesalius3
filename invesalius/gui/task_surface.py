@@ -198,7 +198,17 @@ class InnerTaskPanel(scrolled.ScrolledPanel):
 
             surface_options = dialog.GetValue()
 
-            Publisher.sendMessage("Create surface from index", surface_parameters=surface_options)
+            # Check if "All" was selected (index is None)
+            if surface_options["options"]["index"] is None:
+                # Create surfaces for all masks
+                Publisher.sendMessage(
+                    "Create surfaces for all masks", surface_parameters=surface_options
+                )
+            else:
+                # Create surface for single selected mask
+                Publisher.sendMessage(
+                    "Create surface from index", surface_parameters=surface_options
+                )
         dialog.Destroy()
         if evt:
             evt.Skip()
@@ -583,6 +593,7 @@ class SurfaceProperties(scrolled.ScrolledPanel):
         transparency = 100 * surface.transparency
         # print("Button color: ", colour)
         self.button_colour.SetColour(colour)
+        self.button_colour.Enable(surface.can_edit_colour)
         self.slider_transparency.SetValue(int(transparency))
         #  Publisher.sendMessage('Update surface data', (index))
 

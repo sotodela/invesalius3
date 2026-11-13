@@ -92,6 +92,7 @@ class TrackerCoordinates:
             "From Neuronavigation: Update tracker poses",
             poses=poses,
             visibilities=visibilities,
+            robot_id=-1,
         )
 
     def _dispatch_sensors_update(self) -> None:
@@ -181,79 +182,73 @@ def PolarisP4Coord(tracker_connection: "TrackerConnection", tracker_id: int, ref
 
 
 def OptitrackCoord(tracker_connection: "TrackerConnection", tracker_id: int, ref_mode: int):
-    """
-
-    Obtains coordinates and angles of tracking rigid bodies (Measurement Probe, Coil, Head). Converts orientations from quaternion
-    rotations to Euler angles. This function uses Optitrack wrapper from Motive API 2.2.
-
-    Parameters
-    ----------
-    :tracker_connection: tracker connection instance from OptitrackTrackerConnection class at tracker_connection.py
-    :tracker_id: not used
-    :ref_mode: not used
-
-    Returns
-    -------
-    coord: position of tracking rigid bodies
-    """
+    """Return probe, head and selected coils as rows of [position_mm, angles_deg]."""
     trck = tracker_connection.GetConnection()
     trck.Run()
 
-    scale = 1000 * np.array([1.0, 1.0, 1.0])  # coordinates are in millimeters in Motive API
+    # Keep coil poses and visibilities in the same frame and selected name order.
+    frame = trck.GetFrame()
+    coils_by_name = {coil.name.strip(): coil for coil in frame.coils}
+    coils = [coils_by_name[name] for name in tracker_connection.GetCoilNames()]
 
-    angles_probe = np.degrees(
-        tr.euler_from_quaternion(
-            [
-                float(trck.qwToolTip),
-                float(trck.qzToolTip),
-                float(trck.qxToolTip),
-                float(trck.qyToolTip),
-            ],
-            axes="rzyx",
+    def make_coord(position, quaternion):
+        position_mm = np.asarray(position, dtype=float) * 1000.0
+        angles = np.degrees(
+            tr.euler_from_quaternion(
+                np.asarray(quaternion, dtype=float),
+                axes="rzyx",
+            )
         )
-    )
-    coord1 = np.array(
-        [
-            float(trck.PositionToolTipZ1) * scale[0],
-            float(trck.PositionToolTipX1) * scale[1],
-            float(trck.PositionToolTipY1) * scale[2],
-        ]
-    )
-    coord1 = np.hstack((coord1, angles_probe))
+        return np.hstack((position_mm, angles))
 
-    angles_head = np.degrees(
-        tr.euler_from_quaternion(
-            [float(trck.qwHead), float(trck.qzHead), float(trck.qxHead), float(trck.qyHead)],
-            axes="rzyx",
+    # Preserve the axis and quaternion conversion used by the previous wrapper.
+    coord_probe = make_coord(
+        (
+            trck.PositionToolTipZ1,
+            trck.PositionToolTipX1,
+            trck.PositionToolTipY1,
+        ),
+        (
+            trck.qwToolTip,
+            trck.qzToolTip,
+            trck.qxToolTip,
+            trck.qyToolTip,
+        ),
+    )
+
+    coord_head = make_coord(
+        (
+            trck.PositionHeadZ1,
+            trck.PositionHeadX1,
+            trck.PositionHeadY1,
+        ),
+        (
+            trck.qwHead,
+            trck.qzHead,
+            trck.qxHead,
+            trck.qyHead,
+        ),
+    )
+
+    coil_coords = [
+        make_coord(
+            (coil.z, coil.x, coil.y),
+            (coil.qw, coil.qz, coil.qx, coil.qy),
         )
-    )
-    coord2 = np.array(
-        [
-            float(trck.PositionHeadZ1) * scale[0],
-            float(trck.PositionHeadX1) * scale[1],
-            float(trck.PositionHeadY1) * scale[2],
-        ]
-    )
-    coord2 = np.hstack((coord2, angles_head))
+        for coil in coils
+    ]
 
-    angles_coil = np.degrees(
-        tr.euler_from_quaternion(
-            [float(trck.qwCoil), float(trck.qzCoil), float(trck.qxCoil), float(trck.qyCoil)],
-            axes="rzyx",
-        )
-    )
-    coord3 = np.array(
-        [
-            float(trck.PositionCoilZ1) * scale[0],
-            float(trck.PositionCoilX1) * scale[1],
-            float(trck.PositionCoilY1) * scale[2],
-        ]
-    )
-    coord3 = np.hstack((coord3, angles_coil))
+    coord = np.vstack([coord_probe, coord_head, *coil_coords])
+    marker_visibilities = [
+        int(trck.probeID),
+        int(trck.HeadID),
+        *(int(coil.tracked) for coil in coils),
+    ]
 
-    coord = np.vstack([coord1, coord2, coord3])
+    if frame.status != 0:
+        marker_visibilities = [0] * len(marker_visibilities)
 
-    return coord, [trck.probeID, trck.HeadID, trck.coilID]
+    return coord, marker_visibilities
 
 
 def PolarisCoord(tracker_connection: "TrackerConnection", tracker_id: int, ref_mode: int):
@@ -270,15 +265,17 @@ def PolarisCoord(tracker_connection: "TrackerConnection", tracker_id: int, ref_m
     trans_ref = np.array(ref[6:9]).astype(float)
     coord2 = np.hstack((trans_ref, angles_ref))
 
+    n_coils = getattr(tracker_connection, "n_coils", 1)
+
     obj_coords = []
-    for i in range(trck.objs.size()):
+    for i in range(min(n_coils, trck.objs.size())):
         obj = trck.objs[i].decode(const.FS_ENCODE).split(",")
         angles_obj = np.degrees(tr.euler_from_quaternion(obj[2:6], axes="rzyx"))
         trans_obj = np.array(obj[6:9]).astype(float)
         obj_coords.append(np.hstack((trans_obj, angles_obj)))
 
     coord = np.vstack([coord1, coord2, *obj_coords])
-    marker_visibilities = [trck.probeID, trck.refID] + list(trck.objIDs)
+    marker_visibilities = [trck.probeID, trck.refID] + list(trck.objIDs)[:n_coils]
 
     return coord, marker_visibilities
 
@@ -545,41 +542,36 @@ def DebugCoordRandom(tracker_connection: "TrackerConnection", tracker_id: int, r
     dx = [-30, 30]
     dt = [-180, 180]
 
-    coord1 = np.array(
-        [uniform(*dx), uniform(*dx), uniform(*dx), uniform(*dt), uniform(*dt), uniform(*dt)]
+    n_coils = getattr(tracker_connection, "n_coils", 1)
+
+    coords = []
+    # Add probe and ref
+    coords.append(
+        np.array(
+            [uniform(*dx), uniform(*dx), uniform(*dx), uniform(*dt), uniform(*dt), uniform(*dt)]
+        )
     )
-    coord2 = np.array(
-        [uniform(*dx), uniform(*dx), uniform(*dx), uniform(*dt), uniform(*dt), uniform(*dt)]
+    coords.append(
+        np.array(
+            [uniform(*dx), uniform(*dx), uniform(*dx), uniform(*dt), uniform(*dt), uniform(*dt)]
+        )
     )
-    coord3 = np.array(
-        [uniform(*dx), uniform(*dx), uniform(*dx), uniform(*dt), uniform(*dt), uniform(*dt)]
-    )
-    coord4 = np.array(
-        [uniform(*dx), uniform(*dx), uniform(*dx), uniform(*dt), uniform(*dt), uniform(*dt)]
-    )
-    coord5 = np.array(
-        [uniform(*dx), uniform(*dx), uniform(*dx), uniform(*dt), uniform(*dt), uniform(*dt)]
-    )
+
+    # Add varying number of coils
+    for _ in range(n_coils):
+        coords.append(
+            np.array(
+                [uniform(*dx), uniform(*dx), uniform(*dx), uniform(*dt), uniform(*dt), uniform(*dt)]
+            )
+        )
 
     sleep(0.15)
 
-    # coord1 = np.array([uniform(1, 200), uniform(1, 200), uniform(1, 200),
-    #                    uniform(-180.0, 180.0), uniform(-180.0, 180.0), uniform(-180.0, 180.0)])
-    #
-    # coord2 = np.array([uniform(1, 200), uniform(1, 200), uniform(1, 200),
-    #                    uniform(-180.0, 180.0), uniform(-180.0, 180.0), uniform(-180.0, 180.0)])
-    #
-    # coord3 = np.array([uniform(1, 200), uniform(1, 200), uniform(1, 200),
-    #                    uniform(-180.0, 180.0), uniform(-180.0, 180.0), uniform(-180.0, 180.0)])
-    #
-    # coord4 = np.array([uniform(1, 200), uniform(1, 200), uniform(1, 200),
-    #                    uniform(-180.0, 180.0), uniform(-180.0, 180.0), uniform(-180.0, 180.0)])
-
     # Always make the markers visible when using debug tracker; this enables registration, as it
     # is not possible to registering without markers.
-    marker_visibilities = [True, True, True, True, True]
+    marker_visibilities = [True] * (2 + n_coils)
 
-    return np.vstack([coord1, coord2, coord3, coord4, coord5]), marker_visibilities
+    return np.vstack(coords), marker_visibilities
 
 
 def coordinates_to_transformation_matrix(
@@ -757,6 +749,26 @@ def offset_coordinate(p_old: np.ndarray, norm_vec: np.ndarray, offset: float) ->
     """
     p_offset = p_old - offset * norm_vec
     return p_offset
+
+
+def coil_projection_ray(m_img, coord):
+    # m_img[:3, 0] is from posterior to anterior direction of the coil
+    # m_img[:3, 1] is from left to right direction of the coil
+    # m_img[:3, 2] is from bottom to up direction of the coil
+    vec_length = 70
+    m_img_flip = m_img.copy()
+    m_img_flip[1, -1] = -m_img_flip[1, -1]
+    p1 = m_img_flip[:-1, -1]  # coil center
+    coil_dir = m_img_flip[:-1, 0]
+    coil_face = m_img_flip[:-1, 1]
+
+    coil_norm = np.cross(coil_dir, coil_face)
+    p2_norm = (
+        p1 - vec_length * coil_norm
+    )  # point normal to the coil away from the center by vec_length
+    coil_dir = np.array([coord[3], coord[4], coord[5]])
+
+    return coil_dir, p2_norm, coil_norm, p1
 
 
 class ReceiveCoordinates(threading.Thread):

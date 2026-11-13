@@ -514,6 +514,7 @@ FILETYPE_VRML = wx.NewIdRef()
 FILETYPE_OBJ = wx.NewIdRef()
 FILETYPE_VTP = wx.NewIdRef()
 FILETYPE_PLY = wx.NewIdRef()
+FILETYPE_3MF = wx.NewIdRef()
 FILETYPE_X3D = wx.NewIdRef()
 
 FILETYPE_IMAGEDATA = wx.NewIdRef()
@@ -524,6 +525,7 @@ FILETYPE_PNG = wx.NewIdRef()
 FILETYPE_PS = wx.NewIdRef()
 FILETYPE_POV = wx.NewIdRef()
 FILETYPE_TIF = wx.NewIdRef()
+
 
 IMAGE_TILING = {
     "1 x 1": (1, 1),
@@ -576,7 +578,8 @@ ID_FRAME = wx.NewIdRef()
     ID_NIFTI_IMPORT,
     ID_PARREC_IMPORT,
     ID_MODE_DBS,
-] = [wx.NewIdRef() for number in range(23)]
+    ID_DICOM_SERVER,
+] = [wx.NewIdRef() for number in range(24)]
 ID_EXIT = wx.ID_EXIT
 ID_ABOUT = wx.ID_ABOUT
 
@@ -619,6 +622,7 @@ ID_SEGMENTATION_BRAIN = wx.NewIdRef()
 ID_SEGMENTATION_SUBPART = wx.NewIdRef()
 ID_SEGMENTATION_TRACHEA = wx.NewIdRef()
 ID_SEGMENTATION_MANDIBLE_CT = wx.NewIdRef()
+ID_SEGMENTATION_TOTALSEG = wx.NewIdRef()
 ID_PLANNING_CRANIOPLASTY = wx.NewIdRef()
 ID_CROP_MASK = wx.NewIdRef()
 ID_DENSITY_MEASURE = wx.NewIdRef()
@@ -749,11 +753,16 @@ STYLE_LEVEL = {
     STATE_MASK_3D_EDIT: 3,
 }
 
-# ------------ Prefereces options key ------------
+# ------------ Preferences options key ------------
 RENDERING = 0
 SURFACE_INTERPOLATION = 1
 LANGUAGE = 2
 SLICE_INTERPOLATION = 3
+SERVER_AETITLE = 4
+SERVER_PORT = 5
+STORE_PATH = 6
+SERVER_IP = 7
+DOWNLOAD_METHOD = 8
 # Logging
 LOGGING = 4
 LOGGING_LEVEL = 5
@@ -1206,3 +1215,7 @@ KEYSTROKE_PEDAL_KEY = wx.WXK_F21
 MASK_3D_EDIT_INCLUDE = 0
 MASK_3D_EDIT_EXCLUDE = 1
 MASK_3D_EDIT_OP_NAME = [_("Include Inside"), _("Exclude Inside")]
+
+MASK_3D_EDIT_TOOL_POLYGON = 0
+MASK_3D_EDIT_TOOL_BRUSH = 1
+MASK_3D_EDIT_TOOL_NAME = [_("Polygon"), _("3D Brush")]
