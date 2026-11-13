@@ -177,14 +177,16 @@ class EFieldNavigation:
             return
         picker.InitializePickList()
         picker.PickFromListOn()
-        actors = self.visualizer.ren.GetActors()
+        # VTK calls require the native renderer, not NavigationRenderer's proxy.
+        renderer = self.visualizer.ren.renderer
+        actors = renderer.GetActors()
         actors.InitTraversal()
         for _ in range(actors.GetNumberOfItems()):
             actor = actors.GetNextActor()
             mapper = actor.GetMapper()
             if mapper is not None and mapper.GetInput() == surface_map.polydata:
                 picker.AddPickList(actor)
-        picker.Pick(x, y, 0, self.visualizer.ren)
+        picker.Pick(x, y, 0, renderer)
         if picker.GetCellId() < 0:
             return
         picked_cell_id = self.locator_efield.FindClosestPoint(picker.GetPickPosition())

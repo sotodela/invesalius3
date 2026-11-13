@@ -53,6 +53,7 @@ from invesalius.data.e_field import Get_coil_position
 import invesalius.gui.dialogs as dlg
 import invesalius.session as ses
 from invesalius.data.e_field import EFieldBrain
+from invesalius.data.targeting import extract_targeting_roi_fields, map_targets_to_mesh
 from invesalius.i18n import tr as _
 from invesalius.navigation.efield_navigation import EFieldSurfaceMode
 from invesalius.navigation.navigation import Navigation
@@ -707,23 +708,22 @@ class InnerTaskPanel(wx.Panel):
             self.Send_dI_per_dt_to_report(dIperdt, self.ci, self.co)
 
     def OnRequestEfieldsForTargeting(self, targeting_request):
+        target_region = targeting_request.get("target_region", {})
+        roi_ids = target_region.get("indices") or target_region.get("cell_ids") or []
+        try:
+            roi_ids = [int(value) for value in roi_ids]
+            targets = map_targets_to_mesh(
+                targeting_request.get("target_points", []), self.e_field_mesh, roi_ids
+            )
+        except (TypeError, ValueError) as exc:
+            Publisher.sendMessage("Targeting Efield display status", message=str(exc))
+            return
+        targeting_request = dict(targeting_request, target_points=targets)
         dIperdt = self.GetUnitdIPerdt()
         self.navigation.neuronavigation_api.set_dIperdt(dIperdt=dIperdt)
         self.navigation.MarkEfieldParametersChanged()
         self.Send_dI_per_dt_to_report(dIperdt, self.ci, self.co)
-
         coil_positions = targeting_request.get("coil_positions", [])
-        target_region = targeting_request.get("target_region", {})
-        roi_ids = target_region.get("indices") or target_region.get("cell_ids") or []
-        roi_ids = [int(value) for value in roi_ids]
-        if not roi_ids:
-            Publisher.sendMessage(
-                "Efields for targeting ready",
-                targeting_request=targeting_request,
-                efields=[],
-                dIperdt=dIperdt,
-            )
-            return
         efields = []
 
         for coil_position in coil_positions:
@@ -739,16 +739,26 @@ class InnerTaskPanel(wx.Panel):
                 T_rot=T_rot,
                 id_list=roi_ids,
             )
-            efields.append(
-                {
-                    "coil_position": coil_position,
-                    "position": cp,
-                    "orientation": list(orientation_world),
-                    "T_rot": T_rot,
-                    "efield": efield,
-                    "roi_indices": list(roi_ids),
-                }
-            )
+            try:
+                channel_fields = extract_targeting_roi_fields(
+                    efield, roi_ids, self.e_field_mesh.GetNumberOfPoints(), len(dIperdt)
+                )
+            except (TypeError, ValueError) as exc:
+                Publisher.sendMessage("Targeting Efield display status", message=str(exc))
+                return
+            for channel_index, channel_field in enumerate(channel_fields):
+                efields.append(
+                    {
+                        "coil_position": coil_position,
+                        "channel_index": channel_index,
+                        "label": f"{coil_position.get('label') or 'Coil position'} / channel {channel_index + 1}",
+                        "position": cp,
+                        "orientation": list(orientation_world),
+                        "T_rot": T_rot,
+                        "efield": channel_field,
+                        "roi_indices": list(roi_ids),
+                    }
+                )
 
         Publisher.sendMessage(
             "Efields for targeting ready",
