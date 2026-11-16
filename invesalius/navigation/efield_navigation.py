@@ -32,6 +32,7 @@ import invesalius.data.vtk_utils as vtku
 import invesalius.session as ses
 from invesalius.data.coordinates import coil_projection_ray
 from invesalius.data.visualization.efield_visualizer import EFieldVisualizer
+from invesalius.data.surface_brush import SurfaceDistanceBrush, picked_surface_point_id
 from invesalius.data.visualization.surface_painting import SurfacePainting
 from invesalius.project import Project
 from invesalius.pubsub import pub as Publisher
@@ -65,6 +66,11 @@ class EFieldNavigation:
         self.efield_targeting_area_enabled = False
         self.efield_targeting_area_radius = const.EFIELD_ROI_SIZE
         self.efield_targeting_area_ids = set()
+        self.efield_avoidance_ids = set()
+        self.efield_selection_kind = "roi"
+        self.efield_avoidance_action = "add"
+        self.efield_avoidance_target_key = ""
+        self.avoidance_surface_brush = None
         self.efield_targeting_area_picker = vtkCellPicker()
         self.efield_targeting_area_picker.SetTolerance(1e-3)
         self.targeting_interactor = interactor
@@ -79,6 +85,7 @@ class EFieldNavigation:
 
     def _bind_events(self):
         Publisher.subscribe(self.SetTargetingDisplayMode, "Targeting Efield mode changed")
+        Publisher.subscribe(self.SetEfieldAvoidanceArea, "Set Efield avoidance area")
         Publisher.subscribe(
             self.UpdateEfieldPointLocation, "Update point location for e-field calculation"
         )
@@ -126,7 +133,14 @@ class EFieldNavigation:
             self.visualizer.clear()
             self.visualizer.ReturnToDefaultColorActor()
 
-    def EnableEfieldTargetingAreaSelection(self, enable=True, radius=None):
+    def EnableEfieldTargetingAreaSelection(self, enable=True, radius=None, selection_kind="roi", avoidance_action="add", avoidance_target_key=""):
+        if selection_kind not in ("roi", "avoidance"):
+            raise ValueError("Unknown E-field area selection kind")
+        if avoidance_action not in ("add", "erase"):
+            raise ValueError("Unknown avoidance brush action")
+        self.efield_selection_kind = selection_kind
+        self.efield_avoidance_action = avoidance_action
+        self.efield_avoidance_target_key = avoidance_target_key
         self.efield_targeting_area_enabled = enable
         if radius is not None:
             self.efield_targeting_area_radius = radius
@@ -136,6 +150,18 @@ class EFieldNavigation:
             available=self.efield_mesh is not None,
             selected_ids=sorted(self.efield_targeting_area_ids),
         )
+
+    def SetEfieldAvoidanceArea(self, selected_ids, target_key="", notify=True):
+        self.efield_avoidance_target_key = target_key
+        self.efield_avoidance_ids = set(int(value) for value in selected_ids)
+        if self.efield_mesh is not None:
+            self.visualizer.InitializeColorArray()
+            self._UpdateEfieldTargetingAreaHighlight()
+        if notify:
+            if target_key:
+                Publisher.sendMessage("Efield avoidance area selected", selected_ids=sorted(self.efield_avoidance_ids), target_key=target_key)
+            else:
+                Publisher.sendMessage("Efield avoidance area selected", selected_ids=sorted(self.efield_avoidance_ids))
 
     def ClearEfieldTargetingAreaSelection(self):
         self.efield_targeting_area_ids.clear()
@@ -201,15 +227,15 @@ class EFieldNavigation:
         picker.Pick(x, y, 0, renderer)
         if picker.GetCellId() < 0:
             return
-        picked_cell_id = self.locator_efield.FindClosestPoint(picker.GetPickPosition())
+        picked_cell_id = picked_surface_point_id(
+            picker.GetDataSet(), picker.GetCellId(), picker.GetPickPosition(), self.locator_efield
+        )
 
         if picked_cell_id < 0:
             return
 
-        point = self.e_field_mesh_centers.GetPoint(picked_cell_id)
-        normal = [0.0, 0.0, 1.0]
-        if self.e_field_mesh_normals is not None and picked_cell_id < self.e_field_mesh_normals.GetNumberOfTuples():
-            normal = self.e_field_mesh_normals.GetTuple(picked_cell_id)
+        point = self.efield_mesh.GetPoint(picked_cell_id)
+        normal = picker.GetPickNormal()
         Publisher.sendMessage(
             "Efield targeting cortex point picked",
             point_index=picked_cell_id,
@@ -217,22 +243,39 @@ class EFieldNavigation:
             normal=list(normal),
         )
 
-        selected_ids = self._GetEfieldIdsAroundCell(picked_cell_id)
-        if not selected_ids:
-            selected_ids = [picked_cell_id]
+        try:
+            self.ApplyEfieldAreaBrush(picked_cell_id)
+        except ValueError as exc:
+            Publisher.sendMessage("Targeting Efield display status", message=str(exc))
 
-        self.efield_targeting_area_ids.update(selected_ids)
+    def ApplyEfieldAreaBrush(self, point_id):
+        if self.efield_selection_kind == "avoidance":
+            if self.avoidance_surface_brush is None or self.avoidance_surface_brush.mesh is not self.efield_mesh:
+                self.avoidance_surface_brush = SurfaceDistanceBrush(self.efield_mesh)
+            selected_ids = self.avoidance_surface_brush.points_within_radius(point_id, self.efield_targeting_area_radius)
+            if self.efield_avoidance_action == "erase":
+                self.efield_avoidance_ids.difference_update(selected_ids)
+            else:
+                self.efield_avoidance_ids.update(selected_ids)
+            target_key = getattr(self, "efield_avoidance_target_key", "")
+            if target_key:
+                Publisher.sendMessage("Efield avoidance area selected", selected_ids=sorted(self.efield_avoidance_ids), target_key=target_key)
+            else:
+                Publisher.sendMessage("Efield avoidance area selected", selected_ids=sorted(self.efield_avoidance_ids))
+        else:
+            selected_ids = self._GetEfieldIdsAroundCell(point_id) or [point_id]
+            self.efield_targeting_area_ids.update(selected_ids)
+            self.SendEfieldTargetingAreaSelection()
         self._UpdateEfieldTargetingAreaHighlight()
-        self.SendEfieldTargetingAreaSelection()
 
     def _GetEfieldIdsAroundCell(self, cell_id):
-        if self.locator_efield is None or self.e_field_mesh_centers is None:
+        if self.locator_efield is None or self.efield_mesh is None:
             return []
 
         ids = vtkIdList()
         self.locator_efield.FindPointsWithinRadius(
             float(self.efield_targeting_area_radius),
-            self.e_field_mesh_centers.GetPoint(cell_id),
+            self.efield_mesh.GetPoint(cell_id),
             ids,
         )
         return [ids.GetId(i) for i in range(ids.GetNumberOfIds())]
@@ -240,87 +283,78 @@ class EFieldNavigation:
     def _UpdateEfieldTargetingAreaHighlight(self):
         if self.efield_mesh is None:
             return
-        if self.visualizer.colors_init.GetNumberOfTuples() == 0:
-            self.visualizer.InitializeColorArray()
+        # Reset the base colors first, otherwise erased patches remain orange.
+        self.visualizer.RestoreEfieldBaseColors()
+        if self.efield_selection_kind == "roi":
+            for selected_id in self.efield_targeting_area_ids:
+                if 0 <= selected_id < self.visualizer.colors_init.GetNumberOfTuples():
+                    self.visualizer.colors_init.InsertTuple(selected_id, [0, 220, 190])
 
-        color = [0, 220, 190]
-        for selected_id in self.efield_targeting_area_ids:
-            if selected_id < self.visualizer.colors_init.GetNumberOfTuples():
-                self.visualizer.colors_init.InsertTuple(selected_id, color)
+        for selected_id in self.efield_avoidance_ids:
+            if 0 <= selected_id < self.visualizer.colors_init.GetNumberOfTuples():
+                self.visualizer.colors_init.InsertTuple(selected_id, [255, 90, 40])
 
         self.efield_mesh.GetPointData().SetScalars(self.visualizer.colors_init)
         self.visualizer.RecolorEfieldActor()
         self.visualizer.Refresh()
 
-    def ShowTargetingEfieldResult(self, efield_norms, id_list=None, label=None):
-        if self.efield_mesh is None:
-            Publisher.sendMessage(
-                "Targeting Efield display status",
-                message="Cannot display targeting result: E-field cortex mesh is not loaded",
-            )
-            return
-
-        values = np.asarray(efield_norms, dtype=float).reshape(-1)
-        if values.size == 0:
-            Publisher.sendMessage(
-                "Targeting Efield display status",
-                message="Cannot display targeting result: result E-field is empty",
-            )
-            return
-
-        n_points = self.efield_mesh.GetNumberOfPoints()
-        if id_list is None or len(id_list) == 0:
-            if values.size == n_points:
-                ids = list(range(n_points))
+    def ShowTargetingEfieldResult(self, efield_norms, id_list=None, label=None, efield_vectors=None):
+        try:
+            if self.efield_mesh is None:
+                raise ValueError("E-field cortex mesh is not loaded")
+            values = np.asarray(efield_norms, dtype=float).reshape(-1)
+            if values.size == 0 or not np.all(np.isfinite(values)):
+                raise ValueError("result E-field is empty or nonfinite")
+            n_points = self.efield_mesh.GetNumberOfPoints()
+            ids = list(range(values.size)) if id_list is None or len(id_list) == 0 else [int(i) for i in id_list]
+            # Explicit ROI rows remain paired, even if a reordered ROI covers the whole mesh.
+            if len(ids) == values.size:
+                rows = [(point_id, row) for row, point_id in enumerate(ids) if 0 <= point_id < n_points]
+            elif values.size == n_points:
+                rows = [(point_id, point_id) for point_id in ids if 0 <= point_id < n_points]
             else:
-                ids = list(range(values.size))
-        else:
-            ids = [int(value) for value in id_list]
-
-        if values.size == n_points:
-            valid_pairs = [(point_id, float(values[point_id])) for point_id in ids if 0 <= point_id < n_points]
-            ids = [point_id for point_id, _value in valid_pairs]
-            display_values = [value for _point_id, value in valid_pairs]
-            self.e_field_norms_to_save = values.tolist()
-        elif values.size == len(ids):
-            valid_pairs = [
-                (point_id, float(value))
-                for point_id, value in zip(ids, values)
-                if 0 <= point_id < n_points
-            ]
-            ids = [point_id for point_id, _value in valid_pairs]
-            display_values = [value for _point_id, value in valid_pairs]
-            self.e_field_norms_to_save = values.tolist()
-        else:
-            Publisher.sendMessage(
-                "Targeting Efield display status",
-                message=(
-                    "Cannot display targeting result: "
-                    f"{values.size} E-field values for {len(ids)} ROI ids"
-                ),
-            )
-            return
-        if not ids:
-            Publisher.sendMessage(
-                "Targeting Efield display status",
-                message="Cannot display targeting result: ROI ids are outside the E-field mesh",
-            )
+                raise ValueError(f"{values.size} E-field values for {len(ids)} ROI ids")
+            if not rows:
+                raise ValueError("ROI ids are outside the E-field mesh")
+            ids = [point_id for point_id, _ in rows]
+            sample_rows = [row for _, row in rows]
+            display_values = values[sample_rows]
+            vectors = None
+            if efield_vectors is not None:
+                vectors = np.asarray(efield_vectors, dtype=float)
+                if vectors.shape != (values.size, 3) or not np.all(np.isfinite(vectors)):
+                    raise ValueError("one finite 3D field vector is required per E-field value")
+                vectors = vectors[sample_rows]
+        except (TypeError, ValueError) as exc:
+            Publisher.sendMessage("Targeting Efield display status", message=f"Cannot display targeting result: {exc}")
             return
 
+        self.visualizer.RemoveEfieldTargetingActors()
         self.Id_list = ids
         self.radius_list.Reset()
         for point_id in ids:
             self.radius_list.InsertNextId(point_id)
         self.radius_list.Sort()
-
-        self.e_field_norms = display_values
+        self.e_field_norms = display_values.tolist()
+        self.e_field_norms_to_save = values.tolist()
         max_index = int(np.argmax(display_values))
         self.Idmax = ids[max_index]
+        self.efield_data_revision = None
+        self.max_efield_array = None
+        self.e_field_col1 = self.e_field_col2 = self.e_field_col3 = []
+        if vectors is not None:
+            self.e_field_col1 = vectors[:, 0].tolist()
+            self.e_field_col2 = vectors[:, 1].tolist()
+            self.e_field_col3 = vectors[:, 2].tolist()
+            if display_values[max_index] > 0:
+                self.max_efield_array = vectors[max_index].tolist()
+        self.plot_vector = False
+        self.plot_no_connection = False
         self.efield_coords = None
         self.coil_position = None
         self.coil_position_Trot = None
+        # Use the same scheduled visualization update as the live E-field path.
         self.GetEfieldMaxMin(self.e_field_norms)
-        self.visualizer.OnUpdateEfieldvis()
         Publisher.sendMessage(
             "Targeting Efield display status",
             message=f"Displayed targeting result on {len(ids)} cortex points",
@@ -532,9 +566,12 @@ class EFieldNavigation:
         if not cell_id_indexes or not positions:
             return None
 
-        weights = []
-        for index, value in enumerate(cell_id_indexes):
-            weights.append(self.e_field_norms[index])
+        if len(cell_id_indexes) != len(positions):
+            return None
+        field_by_id = dict(zip(self.Id_list, self.e_field_norms))
+        if any(point_id not in field_by_id for point_id in cell_id_indexes):
+            return None
+        weights = [field_by_id[point_id] for point_id in cell_id_indexes]
         sum_weights = sum(weights)
         if sum_weights == 0:
             return None
@@ -597,6 +634,10 @@ class EFieldNavigation:
         self.scalp_actor = scalp_actor
 
     def InitEfield(self, e_field_brain, painting_token):
+        if self.efield_mesh is not e_field_brain.e_field_mesh:
+            self.efield_avoidance_ids.clear()
+            self.avoidance_surface_brush = None
+            Publisher.sendMessage("Efield avoidance area selected", selected_ids=[], reset=True)
         self.efield_painting_token = painting_token
         self.e_field_mesh_normals = e_field_brain.e_field_mesh_normals
         self.e_field_mesh_centers = e_field_brain.e_field_mesh_centers

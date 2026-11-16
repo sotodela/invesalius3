@@ -153,3 +153,22 @@ def recalculate_targeting_field(area, weights, api, mesh_point_count, restore_cu
             "currents_by_pose": currents_by_pose,
         },
     }
+
+
+def resolve_target_avoidance(targets, shared_region, roi_ids, mesh_point_count):
+    """Resolve each target's override and include every required field sample."""
+    resolved = []
+    calculation_ids = list(roi_ids)
+    for target in targets:
+        region = target.get("avoidance_region", shared_region)
+        indices = sorted(set(int(value) for value in region.get("indices", [])))
+        strength = float(region.get("strength", 0.0))
+        if not np.isfinite(strength) or strength < 0:
+            raise ValueError("Avoidance strength must be finite and nonnegative")
+        if any(index < 0 or index >= mesh_point_count for index in indices):
+            raise ValueError("Avoidance point outside the E-field cortex mesh")
+        if strength > 0 and target["point_index"] in indices:
+            raise ValueError("A target lies inside its avoidance region; adjust that target's selection")
+        resolved.append(dict(target, avoidance_region={"indices": indices, "strength": strength}))
+        calculation_ids.extend(indices)
+    return resolved, list(dict.fromkeys(calculation_ids))

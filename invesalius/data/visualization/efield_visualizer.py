@@ -229,9 +229,13 @@ class EFieldVisualizer:
             return
 
         vtk_colors = vtkNamedColors()
-        if self.GoGEfieldVector and self.ball_GoGEfieldVector is not None:
+        if self.GoGEfieldVector is not None:
             self.ren.RemoveActor(self.GoGEfieldVector)
+            self.GoGEfieldVector = None
+        if self.ball_GoGEfieldVector is not None:
             self.ren.RemoveActor(self.ball_GoGEfieldVector)
+            self.ball_GoGEfieldVector = None
+        self.efield.center_gravity_position = None
         orientation = [
             self.efield.max_efield_array[0],
             self.efield.max_efield_array[1],
@@ -355,6 +359,16 @@ class EFieldVisualizer:
         self.colors_init.SetNumberOfTuples(self.efield.efield_mesh.GetNumberOfPoints())
         for component, value in enumerate(const.CORTEX_COLOR):
             self.colors_init.FillComponent(component, value)
+
+    def RestoreEfieldBaseColors(self):
+        self.InitializeColorArray()
+        if self.efield.e_field_norms is None or getattr(self, "efield_lut", None) is None:
+            return
+        for point_id, value in zip(self.efield.Id_list, self.efield.e_field_norms):
+            if 0 <= point_id < self.colors_init.GetNumberOfTuples():
+                color = [0.0, 0.0, 0.0]
+                self.efield_lut.GetColor(value, color)
+                self.colors_init.InsertTuple(point_id, [int(255 * c) for c in color])
 
     def ReturnToDefaultColorActor(self):
         if self.efield.efield_painting_token is None:
@@ -609,15 +623,7 @@ class EFieldVisualizer:
                 self.RemoveEfieldEdges()
             else:
                 self.CalculateEdgesEfield()
-            self.InitializeColorArray()
-            for h in range(len(self.efield.Id_list)):
-                dcolor = 3 * [0.0]
-                index_id = self.efield.Id_list[h]
-                self.efield_lut.GetColor(self.efield.e_field_norms[h], dcolor)
-                color = 3 * [0.0]
-                for j in range(0, 3):
-                    color[j] = int(255.0 * dcolor[j])
-                self.colors_init.InsertTuple(index_id, color)
+            self.RestoreEfieldBaseColors()
             self.RemoveEfieldVectorActor()
             Publisher.sendMessage("Show max Efield actor")
             Publisher.sendMessage("Show CoG Efield actor")

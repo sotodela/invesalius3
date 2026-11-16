@@ -3263,6 +3263,7 @@ class MarkersPanel(wx.Panel, ColumnSorterMixin):
         Publisher.subscribe(self.UpdateSeedCoordinates, "Update tracts")
         Publisher.subscribe(self.OnChangeCurrentSession, "Current session changed")
         Publisher.subscribe(self.UpdateMarker, "Update marker")
+        Publisher.subscribe(self.RefreshBrainTargetList, "Refresh brain target list")
         Publisher.subscribe(self.UpdateMarkerOrientation, "Open marker orientation dialog")
         Publisher.subscribe(self.AddPeeledSurface, "Update peel")
         Publisher.subscribe(self.GetEfieldDataStatus, "Get status of Efield saved data")
@@ -3837,6 +3838,9 @@ class MarkersPanel(wx.Panel, ColumnSorterMixin):
         self.Update()
 
     # Called when a marker on the list gets the focus by the user left-clicking on it.
+    def RefreshBrainTargetList(self):
+        self.OnMarkerFocused(evt=None)
+
     def OnMarkerFocused(self, evt):
         idx = self.marker_list_ctrl.GetFocusedItem()
 

@@ -53,7 +53,7 @@ from invesalius.data.e_field import Get_coil_position
 import invesalius.gui.dialogs as dlg
 import invesalius.session as ses
 from invesalius.data.e_field import EFieldBrain
-from invesalius.data.targeting import extract_targeting_roi_fields, map_targets_to_mesh, recalculate_targeting_field
+from invesalius.data.targeting import extract_targeting_roi_fields, map_targets_to_mesh, recalculate_targeting_field, resolve_target_avoidance
 from invesalius.i18n import tr as _
 from invesalius.navigation.efield_navigation import EFieldSurfaceMode
 from invesalius.navigation.navigation import Navigation
@@ -717,12 +717,17 @@ class InnerTaskPanel(wx.Panel):
             targets = map_targets_to_mesh(
                 targeting_request.get("target_points", []), self.e_field_mesh, roi_ids
             )
+            avoidance = targeting_request.get("avoidance_region", {})
+            targets, roi_ids = resolve_target_avoidance(
+                targets, avoidance, roi_ids, self.e_field_mesh.GetNumberOfPoints()
+            )
         except (TypeError, ValueError) as exc:
             Publisher.sendMessage("Targeting Efield display status", message=str(exc))
             return
         targeting_request = dict(
             targeting_request, target_points=targets, coil_model_path=self.coil,
             coil_set=self.coil_set, _efield_mesh=self.e_field_mesh,
+            avoidance_region=avoidance,
         )
         self.navigation.SetTargetingEfieldMode(True)
         with self.navigation.e_field_calculation_lock:
