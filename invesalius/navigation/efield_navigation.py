@@ -54,6 +54,7 @@ class EFieldNavigation:
         self.efield_threshold = const.EFIELD_MAX_RANGE_SCALE
         self.efield_ROISize = const.EFIELD_ROI_SIZE
         self.efield_painting_token = None
+        self.targeting_display_active = False
         self.target_at_cortex = None
         self.save_automatically = False
         self.positions_above_threshold = None
@@ -77,6 +78,7 @@ class EFieldNavigation:
         self.visualizer.dispose()
 
     def _bind_events(self):
+        Publisher.subscribe(self.SetTargetingDisplayMode, "Targeting Efield mode changed")
         Publisher.subscribe(
             self.UpdateEfieldPointLocation, "Update point location for e-field calculation"
         )
@@ -113,6 +115,16 @@ class EFieldNavigation:
         Publisher.subscribe(self.SendEfieldTargetingAreaSelection, "Get Efield targeting area")
         Publisher.subscribe(self.SendWholeEfieldTargetingArea, "Get whole Efield targeting area")
         Publisher.subscribe(self.ShowTargetingEfieldResult, "Show targeting Efield result")
+
+    def SetTargetingDisplayMode(self, active):
+        self.targeting_display_active = bool(active)
+        if not active:
+            self.last_efield_cell_id = None
+            self.radius_list.Reset()
+            self.Id_list = []
+            self.e_field_norms = None
+            self.visualizer.clear()
+            self.visualizer.ReturnToDefaultColorActor()
 
     def EnableEfieldTargetingAreaSelection(self, enable=True, radius=None):
         self.efield_targeting_area_enabled = enable
@@ -635,7 +647,7 @@ class EFieldNavigation:
             self.last_efield_cell_id = None
 
     def UpdateEfieldPointLocation(self, m_img, coord, queue_IDs):
-        if self.efield_painting_token is None:
+        if self.targeting_display_active or self.efield_painting_token is None:
             return
         [coil_dir, norm, coil_norm, p1] = coil_projection_ray(m_img, coord)
         intersectingCellIds = vtku.find_cells_along_line(p1, norm, self.locator_efield_cell)
@@ -677,6 +689,8 @@ class EFieldNavigation:
             pass
 
     def UpdateEfieldPointLocationOffline(self, m_img, coord, list_index):
+        if self.targeting_display_active:
+            return
         [coil_dir, norm, coil_norm, p1] = coil_projection_ray(m_img, coord)
         intersectingCellIds = vtku.find_cells_along_line(p1, norm, self.locator_efield_cell)
         self.ShowEfieldintheintersection(intersectingCellIds, p1, coil_norm, coil_dir)
@@ -706,7 +720,7 @@ class EFieldNavigation:
         Publisher.sendMessage("Send coil position and rotation", T_rot=T_rot, cp=cp, m_img=m_img)
 
     def GetEnorm(self, enorm_data, plot_vector, current_revision=None):
-        if self.efield_painting_token is None:
+        if self.targeting_display_active or self.efield_painting_token is None:
             return
         result_revision = enorm_data[5] if len(enorm_data) > 5 else current_revision
         if current_revision is not None and result_revision != current_revision:

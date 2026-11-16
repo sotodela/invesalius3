@@ -182,6 +182,7 @@ class UpdateNavigationScene(threading.Thread):
         try:
             if (
                 self.view_tracts
+                and not self.navigation.targeting_efield_active
                 and self.navigation.e_field_loaded
                 and main_coil == self.navigation.main_coil
             ):
@@ -233,7 +234,8 @@ class UpdateNavigationScene(threading.Thread):
                         flag=self.peel_loaded,
                     )
 
-                    if self.navigation.e_field_loaded and main_coil == self.navigation.main_coil:
+                    if (self.navigation.e_field_loaded and not self.navigation.targeting_efield_active
+                            and main_coil == self.navigation.main_coil):
                         Publisher.sendMessage(
                             "Update point location for e-field calculation",
                             m_img=m_imgs[main_coil],
@@ -393,6 +395,8 @@ class Navigation(metaclass=Singleton):
         self.plot_efield_vectors = False
         self.debug_efield_enorm = None
         self.e_field_revision = 0
+        self.targeting_efield_active = False
+        self.e_field_calculation_lock = threading.RLock()
 
         # Tractography parameters
         self.trk_inp = None
@@ -632,6 +636,7 @@ class Navigation(metaclass=Singleton):
             return False
 
     def StartNavigation(self, tracker, icp):
+        self.SetTargetingEfieldMode(False)
         # Publish new transformations only after all selected coils are prepared.
         self.obj_datas = {}
 
@@ -841,6 +846,14 @@ class Navigation(metaclass=Singleton):
             self.plot_efield_vectors,
         ]
         Publisher.sendMessage("Navigation status", nav_status=False, vis_status=vis_components)
+
+    def SetTargetingEfieldMode(self, active=True):
+        """Hold the selected result until live E-field navigation is requested."""
+        self.targeting_efield_active = bool(active)
+        self.MarkEfieldParametersChanged()
+        for pending in (self.efield_queue, self.e_field_norms_queue, self.e_field_IDs_queue):
+            pending.clear()
+        Publisher.sendMessage("Targeting Efield mode changed", active=bool(active))
 
     def MarkEfieldParametersChanged(self):
         self.e_field_revision += 1

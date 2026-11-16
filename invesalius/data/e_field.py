@@ -131,6 +131,7 @@ class EFieldCalculationThread(threading.Thread):
 
                     if (
                         not self.navigation.e_field_loaded
+                        or self.navigation.targeting_efield_active
                         or revision != self.navigation.e_field_revision
                     ):
                         continue
@@ -146,15 +147,20 @@ class EFieldCalculationThread(threading.Thread):
                             if self.debug:
                                 enorm = self.enorm_debug
                             else:
-                                enorm = self.neuronavigation_api.update_efield_vectorROIMax(
-                                    position=cp,
-                                    orientation=coord[3:],
-                                    T_rot=T_rot,
-                                    id_list=id_list,
-                                )
+                                with self.navigation.e_field_calculation_lock:
+                                    if (self.navigation.targeting_efield_active or
+                                            revision != self.navigation.e_field_revision):
+                                        continue
+                                    enorm = self.neuronavigation_api.update_efield_vectorROIMax(
+                                        position=cp,
+                                        orientation=coord[3:],
+                                        T_rot=T_rot,
+                                        id_list=id_list,
+                                    )
                             if (
                                 self.event.is_set()
                                 or not self.navigation.e_field_loaded
+                                or self.navigation.targeting_efield_active
                                 or revision != self.navigation.e_field_revision
                             ):
                                 continue

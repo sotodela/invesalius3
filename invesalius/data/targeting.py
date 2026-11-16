@@ -82,3 +82,74 @@ def extract_targeting_roi_fields(efield, roi_ids, mesh_point_count, coil_count):
         }
         for channel in vectors
     ]
+
+
+def recalculate_targeting_field(area, weights, api, mesh_point_count, restore_currents):
+    """Recompute selected poses with weighted currents and verify superposition.
+
+    The caller must ensure the original coil/mesh configuration is still loaded.
+    Restore the backend current settings even when a calculation fails.
+    """
+    entries = area.get("efields", [])
+    basis_currents = np.asarray(area.get("dIperdt", []), dtype=float)
+    weights = np.asarray(weights, dtype=float)
+    if (not entries or weights.shape != (len(entries),) or
+            not np.all(np.isfinite(weights)) or basis_currents.ndim != 1 or
+            basis_currents.size == 0 or not np.all(np.isfinite(basis_currents))):
+        raise ValueError("Invalid targeting channel weights or basis currents")
+    ids = list(entries[0]["roi_indices"])
+    expected = np.zeros((len(ids), 3))
+    groups = {}
+    for entry, weight in zip(entries, weights):
+        if list(entry["roi_indices"]) != ids:
+            raise ValueError("Targeting channels have different ROI orders")
+        vectors = np.column_stack([entry["efield"][name] for name in ("column1", "column2", "column3")])
+        if vectors.shape != expected.shape or not np.all(np.isfinite(vectors)):
+            raise ValueError("Invalid saved channel fields")
+        expected += weight * vectors
+        pose_index = entry["coil_position_index"]
+        group = groups.setdefault(pose_index, {"entry": entry, "weights": {}})
+        channel = int(entry["channel_index"])
+        if channel < 0 or channel >= basis_currents.size or channel in group["weights"]:
+            raise ValueError("Invalid or duplicate targeting channel index")
+        group["weights"][channel] = float(weight)
+    for group in groups.values():
+        if len(group["weights"]) != basis_currents.size:
+            raise ValueError("Missing channel fields for a targeting coil position")
+    direct = np.zeros_like(expected)
+    currents_by_pose = []
+    try:
+        for pose_index, group in groups.items():
+            entry = group["entry"]
+            currents = [group["weights"][i] * float(basis_currents[i]) for i in range(basis_currents.size)]
+            if not api.set_dIperdt(dIperdt=currents):
+                raise ValueError("E-field service rejected the optimized channel currents")
+            response = api.update_efield_vectorROI(
+                position=entry["position"], orientation=entry["orientation"],
+                T_rot=entry["T_rot"], id_list=ids,
+            )
+            fields = extract_targeting_roi_fields(response, ids, mesh_point_count, basis_currents.size)
+            for field in fields:
+                direct += np.column_stack([field[name] for name in ("column1", "column2", "column3")])
+            currents_by_pose.append({"coil_position_index": pose_index, "dIperdt": currents})
+    finally:
+        if not api.set_dIperdt(dIperdt=list(restore_currents)):
+            raise ValueError("Could not restore E-field backend current settings")
+    error = direct - expected
+    denominator = float(np.linalg.norm(expected))
+    absolute_error = float(np.linalg.norm(error))
+    rtol, atol = 1e-4, 1e-8
+    return {
+        "id_list": ids,
+        "vectors": direct.tolist(),
+        "norms": np.linalg.norm(direct, axis=1).tolist(),
+        "validation": {
+            "display_source": "direct_efield_service",
+            "relative_vector_error": absolute_error / denominator if denominator else None,
+            "absolute_vector_error": absolute_error,
+            "max_point_vector_error": float(np.max(np.linalg.norm(error, axis=1))) if ids else 0.0,
+            "matches_reconstruction": bool(np.allclose(direct, expected, rtol=rtol, atol=atol)),
+            "relative_tolerance": rtol, "absolute_tolerance": atol,
+            "currents_by_pose": currents_by_pose,
+        },
+    }

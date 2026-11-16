@@ -53,7 +53,7 @@ from invesalius.data.e_field import Get_coil_position
 import invesalius.gui.dialogs as dlg
 import invesalius.session as ses
 from invesalius.data.e_field import EFieldBrain
-from invesalius.data.targeting import extract_targeting_roi_fields, map_targets_to_mesh
+from invesalius.data.targeting import extract_targeting_roi_fields, map_targets_to_mesh, recalculate_targeting_field
 from invesalius.i18n import tr as _
 from invesalius.navigation.efield_navigation import EFieldSurfaceMode
 from invesalius.navigation.navigation import Navigation
@@ -384,6 +384,8 @@ class InnerTaskPanel(wx.Panel):
         Publisher.subscribe(self.GetEfieldDataStatus, "Get status of Efield saved data")
         Publisher.subscribe(self.GetIds, "Get dI for mtms")
         Publisher.subscribe(self.OnRequestEfieldsForTargeting, "Request Efields for targeting")
+        Publisher.subscribe(self.OnRecalculateTargetingEfield, "Recalculate targeting Efield result")
+        Publisher.subscribe(self.OnReturnToLiveEfield, "Return to live Efield")
         Publisher.subscribe(self.OnSaveEfield, "Request Efield save")
 
     def OnAddConfig(self, evt):
@@ -718,47 +720,53 @@ class InnerTaskPanel(wx.Panel):
         except (TypeError, ValueError) as exc:
             Publisher.sendMessage("Targeting Efield display status", message=str(exc))
             return
-        targeting_request = dict(targeting_request, target_points=targets)
-        dIperdt = self.GetUnitdIPerdt()
-        self.navigation.neuronavigation_api.set_dIperdt(dIperdt=dIperdt)
-        self.navigation.MarkEfieldParametersChanged()
-        self.Send_dI_per_dt_to_report(dIperdt, self.ci, self.co)
-        coil_positions = targeting_request.get("coil_positions", [])
-        efields = []
+        targeting_request = dict(
+            targeting_request, target_points=targets, coil_model_path=self.coil,
+            coil_set=self.coil_set, _efield_mesh=self.e_field_mesh,
+        )
+        self.navigation.SetTargetingEfieldMode(True)
+        with self.navigation.e_field_calculation_lock:
+            dIperdt = self.GetUnitdIPerdt()
+            self.navigation.neuronavigation_api.set_dIperdt(dIperdt=dIperdt)
+            self.navigation.MarkEfieldParametersChanged()
+            self.Send_dI_per_dt_to_report(dIperdt, self.ci, self.co)
+            coil_positions = targeting_request.get("coil_positions", [])
+            efields = []
 
-        for coil_position in coil_positions:
-            coords = list(coil_position["position"]) + list(coil_position["orientation"])
-            T_rot, cp = Get_coil_position(coords)
-            _position_world, orientation_world = imagedata_utils.convert_invesalius_to_world(
-                position=coords[:3],
-                orientation=coords[3:],
-            )
-            efield = self.navigation.neuronavigation_api.update_efield_vectorROI(
-                position=cp,
-                orientation=orientation_world,
-                T_rot=T_rot,
-                id_list=roi_ids,
-            )
-            try:
-                channel_fields = extract_targeting_roi_fields(
-                    efield, roi_ids, self.e_field_mesh.GetNumberOfPoints(), len(dIperdt)
+            for coil_position_index, coil_position in enumerate(coil_positions):
+                coords = list(coil_position["position"]) + list(coil_position["orientation"])
+                T_rot, cp = Get_coil_position(coords)
+                _position_world, orientation_world = imagedata_utils.convert_invesalius_to_world(
+                    position=coords[:3],
+                    orientation=coords[3:],
                 )
-            except (TypeError, ValueError) as exc:
-                Publisher.sendMessage("Targeting Efield display status", message=str(exc))
-                return
-            for channel_index, channel_field in enumerate(channel_fields):
-                efields.append(
-                    {
-                        "coil_position": coil_position,
-                        "channel_index": channel_index,
-                        "label": f"{coil_position.get('label') or 'Coil position'} / channel {channel_index + 1}",
-                        "position": cp,
-                        "orientation": list(orientation_world),
-                        "T_rot": T_rot,
-                        "efield": channel_field,
-                        "roi_indices": list(roi_ids),
-                    }
+                efield = self.navigation.neuronavigation_api.update_efield_vectorROI(
+                    position=cp,
+                    orientation=orientation_world,
+                    T_rot=T_rot,
+                    id_list=roi_ids,
                 )
+                try:
+                    channel_fields = extract_targeting_roi_fields(
+                        efield, roi_ids, self.e_field_mesh.GetNumberOfPoints(), len(dIperdt)
+                    )
+                except (TypeError, ValueError) as exc:
+                    Publisher.sendMessage("Targeting Efield display status", message=str(exc))
+                    return
+                for channel_index, channel_field in enumerate(channel_fields):
+                    efields.append(
+                        {
+                            "coil_position": coil_position,
+                            "coil_position_index": coil_position_index,
+                            "channel_index": channel_index,
+                            "label": f"{coil_position.get('label') or 'Coil position'} / channel {channel_index + 1}",
+                            "position": cp,
+                            "orientation": list(orientation_world),
+                            "T_rot": T_rot,
+                            "efield": channel_field,
+                            "roi_indices": list(roi_ids),
+                        }
+                    )
 
         Publisher.sendMessage(
             "Efields for targeting ready",
@@ -767,6 +775,28 @@ class InnerTaskPanel(wx.Panel):
             dIperdt=dIperdt,
         )
 
+    def OnReturnToLiveEfield(self):
+        self.navigation.SetTargetingEfieldMode(False)
+        Publisher.sendMessage("Targeting Efield display status", message="Live E-field navigation resumed")
+
+    def OnRecalculateTargetingEfield(self, option):
+        area = option["targeting_area"]
+        try:
+            if (area.get("_efield_mesh") is not self.e_field_mesh or
+                    area.get("coil_model_path") != self.coil or area.get("coil_set") != self.coil_set):
+                raise ValueError("Coil or cortex mesh changed; prepare a new targeting request")
+            previous_currents = getattr(self, "_reported_dIperdt", area["dIperdt"])
+            self.navigation.SetTargetingEfieldMode(True)
+            with self.navigation.e_field_calculation_lock:
+                result = recalculate_targeting_field(
+                    area, option["result"]["weights"], self.navigation.neuronavigation_api,
+                    self.e_field_mesh.GetNumberOfPoints(), previous_currents,
+                )
+        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+            Publisher.sendMessage("Targeting Efield display status", message=f"Direct recalculation failed: {exc}")
+            return
+        Publisher.sendMessage("Targeting Efield recalculated", option=option, direct_result=result)
+
     def GetIds(self, dIs):
         self.SenddI(dIs)
 
@@ -774,6 +804,7 @@ class InnerTaskPanel(wx.Panel):
         Publisher.sendMessage("Get targets Ids for mtms", target1_origin=[0, 0], target2=[0, 0])
 
     def Send_dI_per_dt_to_report(self, diperdt, ci, co):
+        self._reported_dIperdt = list(diperdt)
         Publisher.sendMessage(
             "Get diperdt used in efield calculation", diperdt=diperdt, ci=self.ci, co=self.co
         )

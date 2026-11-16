@@ -411,7 +411,9 @@ class CoordinateCorregistrate(threading.Thread):
 
                 can_push_coord = not self.coord_queue.full()
                 can_push_tracts = self.view_tracts and not self.coord_tracts_queue.full()
-                can_push_efield = self.navigation.e_field_loaded and not self.efield_queue.full()
+                can_push_efield = (self.navigation.e_field_loaded
+                                   and not self.navigation.targeting_efield_active
+                                   and not self.efield_queue.full())
                 if not (can_push_coord or can_push_tracts or can_push_efield):
                     sleep(self._loop_sleep)
                     continue
