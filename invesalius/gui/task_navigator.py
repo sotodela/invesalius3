@@ -3326,14 +3326,23 @@ class MarkersPanel(wx.Panel, ColumnSorterMixin):
     def _DeleteMarker(self, marker):
         deleted_marker_id = marker.marker_id
         deleted_marker_uuid = marker.marker_uuid
-        idx = self.__find_marker_index(deleted_marker_id)
-        self.marker_list_ctrl.DeleteItem(idx)
-        print("_DeleteMarker:", deleted_marker_uuid)
+        # Rows can be sorted or absent while external editors change markers.
+        # Match stable UUIDs rather than a row position or a renumbered ID.
+        if deleted_marker_uuid:
+            idx = next((row for row in range(self.marker_list_ctrl.GetItemCount())
+                        if self.marker_list_ctrl.GetItem(row, const.UUID).GetText() == str(deleted_marker_uuid)), None)
+        else:
+            idx = self.__find_marker_index(deleted_marker_id)
+        if idx is not None:
+            row_key = self.marker_list_ctrl.GetItemData(idx)
+            self.marker_list_ctrl.DeleteItem(idx)
+            self.itemDataMap.pop(row_key, None)
 
-        # Delete the marker from itemDataMap
-        for key, data in self.itemDataMap.items():
-            current_uuid = data[-1]
-            if current_uuid == deleted_marker_uuid:
+        # A notification for an already-absent row still cleans stale sort data.
+        if deleted_marker_uuid:
+            deleted_keys = [key for key, data in self.itemDataMap.items()
+                            if data[-1] == deleted_marker_uuid]
+            for key in deleted_keys:
                 self.itemDataMap.pop(key)
 
         num_items = self.marker_list_ctrl.GetItemCount()
@@ -3341,6 +3350,9 @@ class MarkersPanel(wx.Panel, ColumnSorterMixin):
             m_id = self.__get_marker_id(n)
             if m_id > deleted_marker_id:
                 self.marker_list_ctrl.SetItem(n, const.ID_COLUMN, str(m_id - 1))
+                row_key = self.marker_list_ctrl.GetItemData(n)
+                if row_key in self.itemDataMap:
+                    self.itemDataMap[row_key][const.ID_COLUMN] = str(m_id - 1)
 
     def _DeleteMultiple(self, markers):
         if len(markers) == self.marker_list_ctrl.GetItemCount():
