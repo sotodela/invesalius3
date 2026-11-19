@@ -172,3 +172,45 @@ def resolve_target_avoidance(targets, shared_region, roi_ids, mesh_point_count):
         resolved.append(dict(target, avoidance_region={"indices": indices, "strength": strength}))
         calculation_ids.extend(indices)
     return resolved, list(dict.fromkeys(calculation_ids))
+
+
+def recalculate_voltage_field(currents, api, mesh_point_count, position, rotation, orientation, restore_currents):
+    """Compute whole-cortex vectors from model dI/dt; restore simulation state."""
+    currents = np.asarray(currents, dtype=float)
+    restore = np.asarray(restore_currents, dtype=float)
+    if (currents.shape != (5,) or not np.all(np.isfinite(currents)) or restore.ndim != 1
+            or len(restore) not in (5, 6) or not np.all(np.isfinite(restore)) or mesh_point_count <= 0):
+        raise ValueError('Five model currents and known previous simulation settings are required')
+    ids = list(range(mesh_point_count))
+    try:
+        if not api.set_dIperdt(dIperdt=currents.tolist()):
+            raise ValueError('E-field model rejected voltage-derived currents')
+        response = api.update_efield_vectorROI(position=position, orientation=orientation, T_rot=rotation, id_list=ids)
+        fields = extract_targeting_roi_fields(response, ids, mesh_point_count, 5)
+        vectors = np.sum([np.column_stack([field[k] for k in ('column1', 'column2', 'column3')]) for field in fields], axis=0)
+    finally:
+        if not api.set_dIperdt(dIperdt=restore.tolist()):
+            raise ValueError('Could not restore the previous E-field model currents')
+    return {'id_list': ids, 'vectors': vectors.tolist(), 'norms': np.linalg.norm(vectors, axis=1).tolist()}
+
+
+def prepare_optimizer_geometry(targets, mesh, roi_ids, avoidance, optimizer, coil_positions):
+    """Map targets and snapshot surface distances for a numerical worker."""
+    from invesalius.data.surface_brush import SurfaceDistanceBrush
+    method = optimizer.get("method", "least_squares")
+    radius = float(optimizer.get("radius_mm", 5.0))
+    if method not in ("localization", "least_squares"):
+        raise ValueError("Unknown targeting optimizer")
+    if not np.isfinite(radius) or radius < 0:
+        raise ValueError("Localization tolerance must be finite and nonnegative")
+    if method == "localization" or optimizer.get("compare", False):
+        if mesh is None:
+            raise ValueError("Load the E-field cortex mesh first")
+        if len(coil_positions) != 1:
+            raise ValueError("Localization requires one fixed coil position; select one coil marker")
+        roi_ids = list(range(mesh.GetNumberOfPoints()))
+    mapped = map_targets_to_mesh(targets, mesh, roi_ids)
+    mapped, roi_ids = resolve_target_avoidance(mapped, avoidance, roi_ids, mesh.GetNumberOfPoints())
+    brush = SurfaceDistanceBrush(mesh)
+    distances = [brush.distances_from(target["point_index"]) for target in mapped]
+    return mapped, roi_ids, distances

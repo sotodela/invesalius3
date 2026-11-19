@@ -48,8 +48,14 @@ class SurfaceDistanceBrush:
         self._signature = signature
 
     def points_within_radius(self, seed, radius):
+        if not np.isfinite(float(radius)):
+            raise ValueError("Surface brush radius must be finite and nonnegative")
+        return sorted(self.distances_from(seed, radius))
+
+    def distances_from(self, seed, radius=float("inf")):
+        """Mesh-edge distances in mesh units; disconnected vertices are absent."""
         radius = float(radius)
-        if not np.isfinite(radius) or radius < 0:
+        if np.isnan(radius) or radius < 0:
             raise ValueError("Surface brush radius must be finite and nonnegative")
         if seed < 0 or seed >= self.mesh.GetNumberOfPoints():
             raise ValueError("Surface brush seed outside mesh")
@@ -65,7 +71,7 @@ class SurfaceDistanceBrush:
                 if candidate <= radius and candidate < distances.get(neighbor, float("inf")):
                     distances[neighbor] = candidate
                     heapq.heappush(pending, (candidate, neighbor))
-        return sorted(distances)
+        return distances
 
 
 def picked_surface_point_id(picked_mesh, cell_id, position, original_locator):

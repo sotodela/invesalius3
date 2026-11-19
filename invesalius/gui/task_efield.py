@@ -53,7 +53,7 @@ from invesalius.data.e_field import Get_coil_position
 import invesalius.gui.dialogs as dlg
 import invesalius.session as ses
 from invesalius.data.e_field import EFieldBrain
-from invesalius.data.targeting import extract_targeting_roi_fields, map_targets_to_mesh, recalculate_targeting_field, resolve_target_avoidance
+from invesalius.data.targeting import extract_targeting_roi_fields, map_targets_to_mesh, recalculate_targeting_field, resolve_target_avoidance, recalculate_voltage_field, prepare_optimizer_geometry
 from invesalius.i18n import tr as _
 from invesalius.navigation.efield_navigation import EFieldSurfaceMode
 from invesalius.navigation.navigation import Navigation
@@ -385,6 +385,7 @@ class InnerTaskPanel(wx.Panel):
         Publisher.subscribe(self.GetIds, "Get dI for mtms")
         Publisher.subscribe(self.OnRequestEfieldsForTargeting, "Request Efields for targeting")
         Publisher.subscribe(self.OnRecalculateTargetingEfield, "Recalculate targeting Efield result")
+        Publisher.subscribe(self.OnValidateVoltageSettings, "Recalculate voltage settings Efield")
         Publisher.subscribe(self.OnReturnToLiveEfield, "Return to live Efield")
         Publisher.subscribe(self.OnSaveEfield, "Request Efield save")
 
@@ -714,20 +715,24 @@ class InnerTaskPanel(wx.Panel):
         roi_ids = target_region.get("indices") or target_region.get("cell_ids") or []
         try:
             roi_ids = [int(value) for value in roi_ids]
-            targets = map_targets_to_mesh(
-                targeting_request.get("target_points", []), self.e_field_mesh, roi_ids
-            )
             avoidance = targeting_request.get("avoidance_region", {})
-            targets, roi_ids = resolve_target_avoidance(
-                targets, avoidance, roi_ids, self.e_field_mesh.GetNumberOfPoints()
-            )
+            settings = targeting_request.get("optimizer", {})
+            method = settings.get("method", "least_squares")
+            targets, roi_ids, distances = prepare_optimizer_geometry(
+                targeting_request.get("target_points", []), self.e_field_mesh,
+                roi_ids, avoidance, settings, targeting_request.get("coil_positions", []))
+            if method == "localization" or settings.get("compare", False):
+                target_region = dict(target_region, source="whole_cortex_localization", indices=roi_ids,
+                                     cell_ids=roi_ids, index_count=len(roi_ids), cell_count=len(roi_ids))
         except (TypeError, ValueError) as exc:
             Publisher.sendMessage("Targeting Efield display status", message=str(exc))
             return
         targeting_request = dict(
             targeting_request, target_points=targets, coil_model_path=self.coil,
             coil_set=self.coil_set, _efield_mesh=self.e_field_mesh,
-            avoidance_region=avoidance,
+            target_region=target_region, avoidance_region=avoidance,
+            _surface_distances=distances,
+            _cortex_point_count=self.e_field_mesh.GetNumberOfPoints(),
         )
         self.navigation.SetTargetingEfieldMode(True)
         with self.navigation.e_field_calculation_lock:
@@ -801,6 +806,57 @@ class InnerTaskPanel(wx.Panel):
             Publisher.sendMessage("Targeting Efield display status", message=f"Direct recalculation failed: {exc}")
             return
         Publisher.sendMessage("Targeting Efield recalculated", option=option, direct_result=result)
+
+    def OnValidateVoltageSettings(self, request):
+        """Use only the loaded numerical model; never dispatch device commands."""
+        previous_mode = bool(getattr(self.navigation, "targeting_efield_active", False))
+        mode_changed = False
+        try:
+            from pathlib import Path
+            from invesalius.data import transformations as tr
+            from invesalius.data.surface_brush import SurfaceDistanceBrush
+            mesh = self.e_field_mesh
+            if mesh is None or mesh.GetNumberOfPoints() == 0 or not self.coil_set:
+                raise ValueError("Load the E-field cortex and five-coil model first")
+            model_name = Path(str(self.coil).replace("\\", "/")).stem.replace("-", "_")
+            if model_name != request["polarity_profile"]:
+                raise ValueError("Loaded coil model differs from the voltage settings")
+            radius = float(request["target_patch_radius_mm"])
+            if not np.isfinite(radius) or radius < 0:
+                raise ValueError("Target patch radius must be finite and nonnegative")
+            previous = getattr(self, "_reported_dIperdt", None)
+            if previous is None:
+                raise ValueError("Previous E-field model currents are unknown; set the E-field panel currents first")
+            target = request["target"]
+            mapped = map_targets_to_mesh([target], mesh, list(range(mesh.GetNumberOfPoints())))[0]
+            if mapped["point_index"] != target["point_index"]:
+                raise ValueError("Target mesh point changed; load the cortex/image used for the export")
+            if "mesh_point_position" in target and not np.allclose(mapped["mesh_point_position"], target["mesh_point_position"], rtol=0, atol=1e-3):
+                raise ValueError("Cortex vertex coordinates differ from the exported target")
+            world_target, _ = imagedata_utils.convert_invesalius_to_world(position=target["position"], orientation=target["orientation"])
+            if not np.allclose(world_target, target["world_position"], rtol=0, atol=1e-3):
+                raise ValueError("Loaded image/world coordinates differ from the target export")
+            pose = request["coil_position"]
+            rotation, position = Get_coil_position(list(pose["position"]) + list(pose["orientation"]))
+            world_position, world_orientation = imagedata_utils.convert_invesalius_to_world(position=pose["position"], orientation=pose["orientation"])
+            expected = tr.compose_matrix(angles=np.radians(pose["world_orientation"]))[:3, :3]
+            expected_rotation = np.concatenate([-expected[:, 1], expected[:, 0], np.cross(expected[:, 0], expected[:, 1])])
+            if not np.allclose(world_position, pose["world_position"], rtol=0, atol=1e-3) or not np.allclose(rotation, expected_rotation, rtol=0, atol=1e-6):
+                raise ValueError("Loaded image transforms do not match the exported coil pose")
+            surface_distances = SurfaceDistanceBrush(mesh).distances_from(mapped["point_index"])
+            patch = [point_id for point_id, distance in surface_distances.items() if distance <= radius]
+            self.navigation.SetTargetingEfieldMode(True)
+            mode_changed = True
+            with self.navigation.e_field_calculation_lock:
+                result = recalculate_voltage_field(request["currents_a_per_s"], self.navigation.neuronavigation_api,
+                    mesh.GetNumberOfPoints(), position, rotation, list(world_orientation), previous)
+            result["target_patch_ids"] = patch
+            result["surface_distances_mm"] = [surface_distances.get(i, float("inf")) for i in result["id_list"]]
+            Publisher.sendMessage("Voltage settings Efield recalculated", request=request, result=result)
+        except (KeyError, TypeError, ValueError, RuntimeError, IndexError) as exc:
+            if mode_changed:
+                self.navigation.SetTargetingEfieldMode(previous_mode)
+            Publisher.sendMessage("Voltage settings validation failed", request=request, message=str(exc))
 
     def GetIds(self, dIs):
         self.SenddI(dIs)

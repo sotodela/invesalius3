@@ -37,6 +37,14 @@ class SurfaceBrushTests(unittest.TestCase):
         self.assertNotIn(10, selected)
         self.assertIn(10, brush.points_within_radius(0, 4.3))
 
+    def test_full_distances_follow_surface_and_omit_disconnected_vertices(self):
+        mesh = folded_ribbon()
+        mesh.GetPoints().InsertNextPoint(0, 0, .01)
+        distances = SurfaceDistanceBrush(mesh).distances_from(0)
+        self.assertAlmostEqual(distances[10], 4.1, places=5)
+        self.assertEqual(distances[0], 0.)
+        self.assertNotIn(12, distances)
+
     def test_disconnected_nearby_vertex_is_never_selected(self):
         mesh = folded_ribbon()
         mesh.GetPoints().InsertNextPoint(0,0,.01)
