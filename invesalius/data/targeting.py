@@ -214,3 +214,16 @@ def prepare_optimizer_geometry(targets, mesh, roi_ids, avoidance, optimizer, coi
     brush = SurfaceDistanceBrush(mesh)
     distances = [brush.distances_from(target["point_index"]) for target in mapped]
     return mapped, roi_ids, distances
+
+
+def capture_field_export_geometry(mesh):
+    """Original mesh vertex IDs and polygon connectivity, without reordering."""
+    offsets=[0];face_ids=[]
+    for i in range(mesh.GetNumberOfCells()):
+        cell=mesh.GetCell(i)
+        if cell.GetCellDimension()!=2:
+            continue
+        face_ids.extend(int(cell.GetPointId(j)) for j in range(cell.GetNumberOfPoints()))
+        offsets.append(len(face_ids))
+    return {"mesh_points_mm":[list(mesh.GetPoint(i)) for i in range(mesh.GetNumberOfPoints())],
+            "mesh_face_offsets":offsets,"mesh_face_point_ids":face_ids}

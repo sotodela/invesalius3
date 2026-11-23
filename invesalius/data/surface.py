@@ -712,6 +712,7 @@ class SurfaceManager:
                 "Get Efield paths",
                 path_meshes=path_meshes,
                 cortex_file=cortex_save_file,
+                head_model_json=str(filename),
                 meshes_file=bmeshes_list,
                 coil=coil,
                 coil_set=coil_set,

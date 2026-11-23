@@ -45,8 +45,9 @@ class VoltageFieldTests(unittest.TestCase):
         navigation = SimpleNamespace(neuronavigation_api=api, targeting_efield_active=False,
             e_field_calculation_lock=contextlib.nullcontext(), SetTargetingEfieldMode=Mock())
         state = SimpleNamespace(e_field_mesh=mesh, coil_set=True, coil='/models/coilset-5-v230908.bin',
-            _reported_dIperdt=[7]*5, navigation=navigation)
-        request = {'polarity_profile':'coilset_5_v230908','currents_a_per_s':[1]*5, 'target_patch_radius_mm':.5,
+            _reported_dIperdt=[7]*5, navigation=navigation,head_model_json='/models/head.json',
+            path_meshes='/models',cortex_file='/models/cortex.bin',meshes_file=['/models/brain.bin'],ci=[.275],co=[1.654])
+        request = {'export_full_field':True,'polarity_profile':'coilset_5_v230908','currents_a_per_s':[1]*5, 'target_patch_radius_mm':.5,
             'target':{'position':[0,0,0],'orientation':[0,0,0],'coordinate_frame':'invesalius','point_index':0,'world_position':[0,0,0]},
             'coil_position':{'position':[0,0,0],'orientation':[0,0,0],'world_position':[0,0,0],'world_orientation':[0,0,0]}}
         publisher = Mock()
@@ -56,6 +57,11 @@ class VoltageFieldTests(unittest.TestCase):
         self.assertEqual(publisher.sendMessage.call_args.args[0], 'Voltage settings Efield recalculated')
         self.assertEqual(api.update_efield_vectorROI.call_args.kwargs['id_list'], [0,1,2])
         self.assertEqual(publisher.sendMessage.call_args.kwargs['result']['target_patch_ids'], [0])
+        exported=publisher.sendMessage.call_args.kwargs['result']
+        self.assertEqual(exported['mesh_face_offsets'],[0,3])
+        self.assertEqual(exported['mesh_face_point_ids'],[0,1,2])
+        self.assertEqual(exported['model_metadata']['head_model_json'],'/models/head.json')
+        self.assertEqual(exported['model_metadata']['conductivities_inside_s_per_m'],[.275])
         api.send_pulse.assert_not_called(); api.send_charge_or_discharge.assert_not_called()
         api.reset_mock(); request['target']['point_index'] = 2
         with patch.object(task_efield,'Publisher',publisher):

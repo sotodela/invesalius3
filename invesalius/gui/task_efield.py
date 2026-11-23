@@ -53,7 +53,7 @@ from invesalius.data.e_field import Get_coil_position
 import invesalius.gui.dialogs as dlg
 import invesalius.session as ses
 from invesalius.data.e_field import EFieldBrain
-from invesalius.data.targeting import extract_targeting_roi_fields, map_targets_to_mesh, recalculate_targeting_field, resolve_target_avoidance, recalculate_voltage_field, prepare_optimizer_geometry
+from invesalius.data.targeting import extract_targeting_roi_fields, map_targets_to_mesh, recalculate_targeting_field, resolve_target_avoidance, recalculate_voltage_field, prepare_optimizer_geometry, capture_field_export_geometry
 from invesalius.i18n import tr as _
 from invesalius.navigation.efield_navigation import EFieldSurfaceMode
 from invesalius.navigation.navigation import Navigation
@@ -557,9 +557,10 @@ class InnerTaskPanel(wx.Panel):
         self.e_field_mesh = efield_mesh
 
     def OnGetEfieldPaths(
-        self, path_meshes, cortex_file, meshes_file, coil, ci, co, dIperdt_list, coil_set=False
+        self, path_meshes, cortex_file, meshes_file, coil, ci, co, dIperdt_list, coil_set=False, head_model_json=None
     ):
         self.path_meshes = path_meshes
+        self.head_model_json = head_model_json
         self.cortex_file = cortex_file
         self.meshes_file = meshes_file
         self.ci = ci
@@ -824,6 +825,8 @@ class InnerTaskPanel(wx.Panel):
             radius = float(request["target_patch_radius_mm"])
             if not np.isfinite(radius) or radius < 0:
                 raise ValueError("Target patch radius must be finite and nonnegative")
+            if len(request["currents_a_per_s"]) != 5:
+                raise ValueError("The current InVesalius numerical validation backend requires five coil channels; offline profiles may use other counts")
             previous = getattr(self, "_reported_dIperdt", None)
             if previous is None:
                 raise ValueError("Previous E-field model currents are unknown; set the E-field panel currents first")
@@ -850,6 +853,16 @@ class InnerTaskPanel(wx.Panel):
             with self.navigation.e_field_calculation_lock:
                 result = recalculate_voltage_field(request["currents_a_per_s"], self.navigation.neuronavigation_api,
                     mesh.GetNumberOfPoints(), position, rotation, list(world_orientation), previous)
+            if request.get("export_full_field"):
+                result.update(capture_field_export_geometry(mesh))
+                result["model_metadata"] = {
+                    "head_model_json":getattr(self,"head_model_json",None),
+                    "mesh_root":getattr(self,"path_meshes",None),
+                    "cortex":getattr(self,"cortex_file",None),
+                    "boundary_meshes":list(getattr(self,"meshes_file",None) or []),
+                    "coil":self.coil,
+                    "conductivities_inside_s_per_m":np.asarray(getattr(self,"ci",None)).tolist(),
+                    "conductivities_outside_s_per_m":np.asarray(getattr(self,"co",None)).tolist()}
             result["target_patch_ids"] = patch
             result["surface_distances_mm"] = [surface_distances.get(i, float("inf")) for i in result["id_list"]]
             Publisher.sendMessage("Voltage settings Efield recalculated", request=request, result=result)
